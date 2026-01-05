@@ -34,6 +34,7 @@ public class ReplayManager {
     private final Map<UUID, PlayerAction> currentActions = new ConcurrentHashMap<>();
     private final Set<Integer> activeReplays = ConcurrentHashMap.newKeySet();
     private final Map<Integer, org.bukkit.scheduler.BukkitTask> placedReplayTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<Integer, Long>> proximityCooldowns = new ConcurrentHashMap<>();
     
     private static final int MAX_FRAMES = 200;
 
@@ -70,6 +71,43 @@ public class ReplayManager {
         scheduleNextReplay(ReplayType.DEATH);
         scheduleNextReplay(ReplayType.BOSS_KILL);
         loadPlacedReplays();
+        startProximityCheckTask();
+    }
+
+    private void startProximityCheckTask() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!plugin.getConfig().getBoolean("proximity-replay.enabled", true)) return;
+
+                double radius = plugin.getConfig().getDouble("proximity-replay.radius", 5.0);
+                long cooldownSeconds = plugin.getConfig().getLong("proximity-replay.cooldown", 600);
+                long cooldownMillis = cooldownSeconds * 1000;
+
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player.getGameMode() == GameMode.SPECTATOR) continue;
+
+                    List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplays(player.getLocation(), radius, null);
+                    
+                    for (DatabaseManager.ReplayData replay : nearbyReplays) {
+                        if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
+                        if (activeReplays.contains(replay.id)) continue;
+
+                        Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(player.getUniqueId(), k -> new HashMap<>());
+                        long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
+
+                        if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
+                            // Play the replay
+                            playGhostReplay(replay);
+                            playerCooldowns.put(replay.id, System.currentTimeMillis());
+                            
+                            // Only trigger one replay per check to avoid chaos
+                            break; 
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 100L, 20L); // Check every second (20 ticks), start after 5s
     }
 
     private void loadPlacedReplays() {

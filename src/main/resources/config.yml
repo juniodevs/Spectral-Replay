@@ -18,3 +18,9 @@ boss-replay:
 # true = displays the armor the player was wearing
 # false = ghost without armor
 armor: false
+
+# Proximity Replay (Jumpscare) Settings
+proximity-replay:
+  enabled: true
+  radius: 5
+  cooldown: 600 # in seconds (10 minutes)
