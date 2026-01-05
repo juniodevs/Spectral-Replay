@@ -29,8 +29,6 @@ public class ReplayManager {
 
     private final SpectralReplay plugin;
     private final DatabaseManager databaseManager;
-    private Team ghostTeam;
-
     private final Map<UUID, Deque<ReplayFrame>> recordings = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerAction> currentActions = new ConcurrentHashMap<>();
     private final Set<Integer> activeReplays = ConcurrentHashMap.newKeySet();
@@ -44,7 +42,6 @@ public class ReplayManager {
     public ReplayManager(SpectralReplay plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
-        setupGhostTeam();
         cleanupLeftoverNPCs();
     }
 
@@ -66,16 +63,21 @@ public class ReplayManager {
         }
     }
 
-    private void setupGhostTeam() {
+    private Team getOrRegisterGhostTeam() {
         Scoreboard scoreboard = Bukkit.getScoreboardManager().getMainScoreboard();
-        ghostTeam = scoreboard.getTeam("spectral_ghosts");
-        if (ghostTeam == null) {
-            ghostTeam = scoreboard.registerNewTeam("spectral_ghosts");
+        Team team = scoreboard.getTeam("spectral_ghosts");
+        if (team == null) {
+            try {
+                team = scoreboard.registerNewTeam("spectral_ghosts");
+                team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
+                team.setOption(Team.Option.COLLISION_RULE, Team.OptionStatus.NEVER);
+                team.setColor(ChatColor.GRAY);
+            } catch (IllegalArgumentException e) {
+                // Team might have been created by another thread or plugin in the meantime
+                team = scoreboard.getTeam("spectral_ghosts");
+            }
         }
-        ghostTeam.setCanSeeFriendlyInvisibles(true);
-        ghostTeam.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.NEVER);
-        ghostTeam.setOption(Team.Option.COLLISION_RULE, Team.OptionStatus.NEVER);
-        ghostTeam.setColor(ChatColor.GRAY);
+        return team;
     }
 
     public void startRecording() {
@@ -520,16 +522,9 @@ public class ReplayManager {
         
         npc.data().set("nameplate-visible", false);
 
-        if (ghostTeam != null) {
-            ghostTeam.addEntry(ghostName);
-            for (Player p : startLoc.getWorld().getPlayers()) {
-                if (p.getLocation().distanceSquared(startLoc) < 2500) {
-                    Scoreboard sb = p.getScoreboard();
-                    if (sb.equals(Bukkit.getScoreboardManager().getMainScoreboard()) && sb.getEntryTeam(p.getName()) == null) {
-                        ghostTeam.addEntry(p.getName());
-                    }
-                }
-            }
+        Team team = getOrRegisterGhostTeam();
+        if (team != null) {
+            team.addEntry(ghostName);
         }
 
         new BukkitRunnable() {
@@ -665,8 +660,9 @@ public class ReplayManager {
 
             private void cleanup() {
                 onComplete.run();
-                if (ghostTeam != null) {
-                    ghostTeam.removeEntry(ghostName);
+                Team team = getOrRegisterGhostTeam();
+                if (team != null) {
+                    team.removeEntry(ghostName);
                 }
                 if (npc.isSpawned()) {
                     Location loc = npc.getStoredLocation();
