@@ -11,7 +11,8 @@ max-delay: 24000
 
 # Maximum number of concurrent replays allowed
 # If this limit is reached, no new replays will start until some finish
-max-concurrent-replays: 1
+# Must be at least 2 to allow PVP replays to function
+max-concurrent-replays: 2
 
 # Boss Replay Settings
 boss-replay:

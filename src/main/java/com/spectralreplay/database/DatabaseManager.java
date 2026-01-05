@@ -109,13 +109,12 @@ public class DatabaseManager {
         saveReplay(playerUUID, deathLocation, frames, type, System.currentTimeMillis());
     }
 
-    public List<ReplayData> getReplaysByTimestamp(long timestamp, UUID excludeUUID) {
+    public List<ReplayData> getReplaysByTimestamp(long timestamp) {
         List<ReplayData> replays = new ArrayList<>();
-        String sql = "SELECT * FROM death_replays WHERE timestamp = ? AND uuid != ?";
+        String sql = "SELECT * FROM death_replays WHERE timestamp = ?";
         
         try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setLong(1, timestamp);
-            ps.setString(2, excludeUUID.toString());
             
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

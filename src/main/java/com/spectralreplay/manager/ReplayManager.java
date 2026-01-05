@@ -359,6 +359,8 @@ public class ReplayManager {
                     databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames, type, timestamp);
                 }
             }.runTaskAsynchronously(plugin);
+        } else {
+            plugin.getLogger().warning("Skipping replay save for " + player.getName() + " (Type: " + type + ") - No frames recorded.");
         }
         clearRecording(player);
     }
@@ -390,12 +392,15 @@ public class ReplayManager {
 
                     DatabaseManager.ReplayData partnerData = null;
                     if (fullData.type == ReplayType.PVP && origin == null) {
-                         List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(fullData.timestamp, fullData.uuid);
+                         List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(fullData.timestamp);
                          for (DatabaseManager.ReplayData r : partners) {
-                             if (r.id != fullData.id) {
+                             if (r.id != fullData.id && !r.uuid.equals(fullData.uuid)) {
                                  partnerData = r;
                                  break;
                              }
+                         }
+                         if (partnerData == null) {
+                             plugin.getLogger().warning("Could not find partner replay for PVP replay ID: " + fullData.id + " (Timestamp: " + fullData.timestamp + ")");
                          }
                     }
                     
@@ -431,6 +436,9 @@ public class ReplayManager {
 
         if (origin == null) {
             int maxConcurrent = plugin.getConfig().getInt("max-concurrent-replays", 5);
+            // Safety check: PVP replays require 2 slots. If config is 1, they would never play.
+            if (maxConcurrent < 2) maxConcurrent = 2;
+
             int needed = 1;
             if (partnerReplay != null) needed = 2;
             
