@@ -147,10 +147,20 @@ public class ReplayManager {
         org.bukkit.scheduler.BukkitTask task = new BukkitRunnable() {
             @Override
             public void run() {
-                DatabaseManager.ReplayData data = databaseManager.getReplayById(placed.replayId);
-                if (data != null) {
-                    playGhostReplay(data, placed.location);
-                }
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        DatabaseManager.ReplayData data = databaseManager.getReplayById(placed.replayId);
+                        if (data != null) {
+                            new BukkitRunnable() {
+                                @Override
+                                public void run() {
+                                    playGhostReplay(data, placed.location);
+                                }
+                            }.runTask(plugin);
+                        }
+                    }
+                }.runTaskAsynchronously(plugin);
             }
         }.runTaskTimer(plugin, 100L, 600L); // Start after 5s, repeat every 30s (adjust as needed)
         
@@ -196,31 +206,52 @@ public class ReplayManager {
         if (!activeReplays.isEmpty()) return;
 
         List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+        if (players.isEmpty()) return;
         Collections.shuffle(players);
 
+        Map<Player, Location> candidates = new HashMap<>();
         for (Player player : players) {
             long time = player.getWorld().getTime();
             if (time < 13000 || time > 23000) continue;
+            candidates.put(player, player.getLocation());
+        }
 
-            if (ThreadLocalRandom.current().nextDouble() > 0.3) continue;
+        if (candidates.isEmpty()) return;
 
-            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(player.getLocation(), 20.0, type);
-            if (nearbyReplays.isEmpty()) continue;
 
-            List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
-            for (DatabaseManager.ReplayData r : nearbyReplays) {
-                if (!activeReplays.contains(r.id)) {
-                    availableReplays.add(r);
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (Map.Entry<Player, Location> entry : candidates.entrySet()) {
+                    if (ThreadLocalRandom.current().nextDouble() > 0.3) continue;
+
+                    Location loc = entry.getValue();
+                    List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(loc, 20.0, type);
+                    
+                    if (nearbyReplays.isEmpty()) continue;
+
+                    List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
+                    for (DatabaseManager.ReplayData r : nearbyReplays) {
+                        if (!activeReplays.contains(r.id)) {
+                            availableReplays.add(r);
+                        }
+                    }
+
+                    if (availableReplays.isEmpty()) continue;
+
+                    DatabaseManager.ReplayData replay = availableReplays.get(ThreadLocalRandom.current().nextInt(availableReplays.size()));
+                    
+                    // Switch back to main thread to play
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            playGhostReplay(replay);
+                        }
+                    }.runTask(plugin);
+                    return; // Found one, stop searching
                 }
             }
-
-            if (availableReplays.isEmpty()) continue;
-
-            DatabaseManager.ReplayData replay = availableReplays.get(ThreadLocalRandom.current().nextInt(availableReplays.size()));
-            
-            playGhostReplay(replay);
-            return;
-        }
+        }.runTaskAsynchronously(plugin);
     }
 
     private void recordFrame(Player player) {
@@ -286,43 +317,60 @@ public class ReplayManager {
     }
 
     public void playGhostReplay(DatabaseManager.ReplayData replayData, Location origin) {
-        if (replayData.frames == null) {
+        if (replayData.frames == null || (replayData.type == ReplayType.PVP && origin == null)) {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    List<ReplayFrame> frames = databaseManager.getReplayFrames(replayData.id);
+                    List<ReplayFrame> frames = replayData.frames;
+                    if (frames == null) {
+                        frames = databaseManager.getReplayFrames(replayData.id);
+                    }
+                    
                     if (frames.isEmpty()) return;
 
                     DatabaseManager.ReplayData fullData = new DatabaseManager.ReplayData(
                             replayData.id, replayData.uuid, replayData.location, frames, replayData.type, replayData.timestamp
                     );
 
+                    DatabaseManager.ReplayData partnerData = null;
+                    if (fullData.type == ReplayType.PVP && origin == null) {
+                         List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(fullData.timestamp, fullData.uuid);
+                         for (DatabaseManager.ReplayData r : partners) {
+                             if (r.id != fullData.id) {
+                                 partnerData = r;
+                                 break;
+                             }
+                         }
+                    }
+                    
+                    final DatabaseManager.ReplayData finalPartner = partnerData;
+
                     new BukkitRunnable() {
                         @Override
                         public void run() {
-                            playGhostReplay(fullData, origin);
+                            playGhostReplayInternal(fullData, origin, finalPartner);
                         }
                     }.runTask(plugin);
                 }
             }.runTaskAsynchronously(plugin);
             return;
         }
+        
+        playGhostReplayInternal(replayData, origin, null);
+    }
 
+    private void playGhostReplayInternal(DatabaseManager.ReplayData replayData, Location origin, DatabaseManager.ReplayData preloadedPartner) {
         if (origin == null && activeReplays.contains(replayData.id)) return;
 
-        DatabaseManager.ReplayData partnerReplay = null;
-        if (replayData.type == ReplayType.PVP) {
-            List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(replayData.timestamp, replayData.uuid);
-            for (DatabaseManager.ReplayData r : partners) {
-                if (r.id != replayData.id) {
-                    partnerReplay = r;
-                    break;
-                }
-            }
+        DatabaseManager.ReplayData partnerReplay = preloadedPartner;
+        
+        // Fallback check if partner wasn't preloaded (shouldn't happen with new logic, but keeps compatibility)
+        if (replayData.type == ReplayType.PVP && partnerReplay == null && origin == null) {
+             // Skip partner to avoid sync DB call
+        }
 
-            if (partnerReplay != null && origin == null && activeReplays.contains(partnerReplay.id)) {
-                return;
-            }
+        if (partnerReplay != null && origin == null && activeReplays.contains(partnerReplay.id)) {
+            return;
         }
 
         if (origin == null) {
