@@ -37,8 +37,11 @@ public class ReplayManager {
     private final Map<UUID, Long> respawnProtections = new ConcurrentHashMap<>();
     private final Queue<NPC> npcPool = new ConcurrentLinkedQueue<>();
     private final Set<NPC> activeNPCs = ConcurrentHashMap.newKeySet();
+    private long globalReplayCooldownUntil = 0;
     
     private static final int MAX_FRAMES = 200;
+    private static final int GAME_TIME_NIGHT_START = 13000;
+    private static final int GAME_TIME_NIGHT_END = 23000;
 
     public ReplayManager(SpectralReplay plugin, DatabaseManager databaseManager) {
         this.plugin = plugin;
@@ -109,6 +112,7 @@ public class ReplayManager {
 
     public void resetCooldowns() {
         proximityCooldowns.clear();
+        globalReplayCooldownUntil = 0;
     }
 
     private void startProximityCheckTask() {
@@ -121,70 +125,89 @@ public class ReplayManager {
                     double radius = plugin.getConfig().getDouble("proximity-replay.radius", 5.0);
                     long cooldownSeconds = plugin.getConfig().getLong("proximity-replay.cooldown", 600);
                     long cooldownMillis = cooldownSeconds * 1000;
+                    
+                    List<PlayerContext> candidates = new ArrayList<>();
 
                     for (Player player : Bukkit.getOnlinePlayers()) {
-                        try {
-                            if (player.getGameMode() == GameMode.SPECTATOR) continue;
+                         if (player.getGameMode() == GameMode.SPECTATOR) continue;
 
-                            if (respawnProtections.containsKey(player.getUniqueId())) {
-                                if (System.currentTimeMillis() < respawnProtections.get(player.getUniqueId())) {
-                                    continue;
-                                } else {
-                                    respawnProtections.remove(player.getUniqueId());
-                                }
-                            }
-
-                            final long time = player.getWorld().getTime();
-                            final Location playerLoc = player.getLocation();
-                            final UUID playerUUID = player.getUniqueId();
-
-                            new BukkitRunnable() {
-                                @Override
-                                public void run() {
-                                    try {
-                                        List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(playerLoc, radius, null);
-                                        
-                                        for (DatabaseManager.ReplayData replay : nearbyReplays) {
-                                            if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
-                                            
-                                            if (replay.type == ReplayType.DEATH && (time < 13000 || time > 23000)) continue;
-                                            
-                                            if (activeReplays.contains(replay.id)) continue;
-
-                                            long lastPlayed = proximityCooldowns.getOrDefault(replay.id, 0L);
-
-                                            if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
-                                                playGhostReplay(replay);
-                                                proximityCooldowns.put(replay.id, System.currentTimeMillis());
-                                                
-                                                if (replay.type == ReplayType.PVP) {
-                                                    try {
-                                                        List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(replay.timestamp);
-                                                        for (DatabaseManager.ReplayData partner : partners) {
-                                                            proximityCooldowns.put(partner.id, System.currentTimeMillis());
-                                                        }
-                                                    } catch (Exception e) {
-                                                        plugin.getLogger().warning("Failed to cooldown partner replays: " + e.getMessage());
-                                                    }
-                                                }
-                                                
-                                                break; 
-                                            }
-                                        }
-                                    } catch (Exception e) {
-                                        plugin.getLogger().warning("Error in proximity check task: " + e.getMessage());
-                                    }
-                                }
-                            }.runTaskAsynchronously(plugin);
-                        } catch (Exception e) {
-                            plugin.getLogger().warning("Error processing player " + player.getName() + " for proximity replay: " + e.getMessage());
-                        }
+                         if (respawnProtections.containsKey(player.getUniqueId())) {
+                             if (System.currentTimeMillis() < respawnProtections.get(player.getUniqueId())) {
+                                 continue;
+                             } else {
+                                 respawnProtections.remove(player.getUniqueId());
+                             }
+                         }
+                         
+                         candidates.add(new PlayerContext(player.getUniqueId(), player.getLocation(), player.getWorld().getTime()));
                     }
+
+                    if (candidates.isEmpty()) return;
+
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            for (PlayerContext ctx : candidates) {
+                                processProximityForPlayer(ctx, radius, cooldownMillis);
+                            }
+                        }
+                    }.runTaskAsynchronously(plugin);
                 } catch (Exception e) {
                     plugin.getLogger().warning("Error in proximity check loop: " + e.getMessage());
                 }
             }
         }.runTaskTimer(plugin, 100L, 20L);
+    }
+    
+    private void processProximityForPlayer(PlayerContext ctx, double radius, long cooldownMillis) {
+        try {
+            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(ctx.location, radius, null);
+            int maxPlays = plugin.getConfig().getInt("max-plays-per-replay", 5);
+            
+            for (DatabaseManager.ReplayData replay : nearbyReplays) {
+                if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
+                
+                if (replay.type == ReplayType.DEATH && (ctx.worldTime < GAME_TIME_NIGHT_START || ctx.worldTime > GAME_TIME_NIGHT_END)) continue;
+                
+                if (maxPlays != -1 && replay.playCount >= maxPlays) continue;
+                
+                if (activeReplays.contains(replay.id)) continue;
+
+                long lastPlayed = proximityCooldowns.getOrDefault(replay.id, 0L);
+
+                if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
+                    playGhostReplay(replay);
+                    proximityCooldowns.put(replay.id, System.currentTimeMillis());
+                    
+                    if (replay.type == ReplayType.PVP) {
+                        try {
+                            List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(replay.timestamp);
+                            for (DatabaseManager.ReplayData partner : partners) {
+                                proximityCooldowns.put(partner.id, System.currentTimeMillis());
+                            }
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Failed to cooldown partner replays: " + e.getMessage());
+                        }
+                    }
+                    
+                    break; 
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error in key proximity check task: " + e.getMessage());
+        }
+    }
+
+    private static class PlayerContext {
+        final UUID uuid;
+        final Location location;
+        final long worldTime;
+        
+        PlayerContext(UUID uuid, Location location, long worldTime) {
+            this.uuid = uuid;
+            this.location = location;
+            this.worldTime = worldTime;
+        }
     }
 
     private void loadPlacedReplays() {
@@ -248,8 +271,8 @@ public class ReplayManager {
             maxDelay = plugin.getConfig().getLong("max-delay", 24000L);
         }
         */
-        minDelay = plugin.getConfig().getLong("min-delay", 12000L);
-        maxDelay = plugin.getConfig().getLong("max-delay", 24000L);
+        minDelay = plugin.getConfig().getLong("min-delay", 1200L);
+        maxDelay = plugin.getConfig().getLong("max-delay", 3600L);
         
         long delay = ThreadLocalRandom.current().nextLong(minDelay, maxDelay + 1);
 
@@ -257,7 +280,9 @@ public class ReplayManager {
             @Override
             public void run() {
                 try {
-                    attemptReplay(type);
+                    if (System.currentTimeMillis() >= globalReplayCooldownUntil) {
+                        attemptReplay(type);
+                    }
                 } finally {
                     scheduleNextReplay(type);
                 }
@@ -291,30 +316,23 @@ public class ReplayManager {
 
                         Location loc = entry.getValue();
                         List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(loc, 20.0, type);
-                        
+
                         if (nearbyReplays.isEmpty()) continue;
+                        
+                        int maxPlays = plugin.getConfig().getInt("max-plays-per-replay", 5);
 
                         List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
                         for (DatabaseManager.ReplayData r : nearbyReplays) {
-                            if (!activeReplays.contains(r.id)) {
-                                availableReplays.add(r);
-                            }
+                            if (activeReplays.contains(r.id)) continue;
+                            if (maxPlays != -1 && r.playCount >= maxPlays) continue;
+                            availableReplays.add(r);
                         }
 
                         if (availableReplays.isEmpty()) continue;
 
                         DatabaseManager.ReplayData replay = availableReplays.get(ThreadLocalRandom.current().nextInt(availableReplays.size()));
                         
-                        new BukkitRunnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    playGhostReplay(replay);
-                                } catch (Exception e) {
-                                    plugin.getLogger().warning("Error playing ghost replay: " + e.getMessage());
-                                }
-                            }
-                        }.runTask(plugin);
+                        playGhostReplay(replay);
                         return;
                     }
                 } catch (Exception e) {
@@ -460,7 +478,7 @@ public class ReplayManager {
                         if (frames.isEmpty()) return;
 
                         DatabaseManager.ReplayData fullData = new DatabaseManager.ReplayData(
-                                replayData.id, replayData.uuid, replayData.location, frames, replayData.type, replayData.timestamp
+                                replayData.id, replayData.uuid, replayData.location, frames, replayData.type, replayData.timestamp, replayData.playCount
                         );
 
                         DatabaseManager.ReplayData partnerData = null;
@@ -497,15 +515,24 @@ public class ReplayManager {
             return;
         }
         
-        try {
-            playGhostReplayInternal(replayData, origin, null);
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error in playGhostReplayInternal (sync): " + e.getMessage());
-        }
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                try {
+                    playGhostReplayInternal(replayData, origin, null);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error in playGhostReplayInternal (sync): " + e.getMessage());
+                }
+            }
+        }.runTask(plugin);
     }
 
     private void playGhostReplayInternal(DatabaseManager.ReplayData replayData, Location origin, DatabaseManager.ReplayData preloadedPartner) {
         if (origin == null && activeReplays.contains(replayData.id)) return;
+        
+        if (origin == null && System.currentTimeMillis() < globalReplayCooldownUntil) {
+            return;
+        }
 
         DatabaseManager.ReplayData partnerReplay = preloadedPartner;
         
@@ -527,10 +554,25 @@ public class ReplayManager {
                 return;
             }
 
+            long minDelay = plugin.getConfig().getLong("min-delay", 1200L);
+            long maxDelay = plugin.getConfig().getLong("max-delay", 3600L);
+            long delayMillis = ThreadLocalRandom.current().nextLong(minDelay, maxDelay + 1) * 50;
+            globalReplayCooldownUntil = System.currentTimeMillis() + delayMillis;
+
             activeReplays.add(replayData.id);
             if (partnerReplay != null) {
                 activeReplays.add(partnerReplay.id);
             }
+            
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    databaseManager.incrementPlayCount(replayData.id);
+                    if (partnerReplay != null) {
+                        databaseManager.incrementPlayCount(partnerReplay.id);
+                    }
+                }
+            }.runTaskAsynchronously(plugin);
         }
 
         startPlayback(replayData, origin, () -> {

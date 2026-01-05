@@ -16,12 +16,14 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 
 public class DatabaseManager {
 
     private final SpectralReplay plugin;
     private Connection connection;
+    private final ReentrantLock connectionLock = new ReentrantLock();
 
     public DatabaseManager(SpectralReplay plugin) {
         this.plugin = plugin;
@@ -56,19 +58,26 @@ public class DatabaseManager {
                         "z DOUBLE NOT NULL," +
                         "timestamp LONG NOT NULL," +
                         "replay_data BLOB NOT NULL," +
-                        "type VARCHAR(20) DEFAULT 'DEATH'" +
+                        "type VARCHAR(20) DEFAULT 'DEATH'," +
+                        "play_count INTEGER DEFAULT 0" +
                         ")");
                 
                 try {
-                    // Check if column exists before adding
                     DatabaseMetaData md = connection.getMetaData();
+                    
                     ResultSet rs = md.getColumns(null, null, "death_replays", "type");
                     if (!rs.next()) {
                         statement.execute("ALTER TABLE death_replays ADD COLUMN type VARCHAR(20) DEFAULT 'DEATH'");
                     }
                     rs.close();
+                    
+                    rs = md.getColumns(null, null, "death_replays", "play_count");
+                    if (!rs.next()) {
+                        statement.execute("ALTER TABLE death_replays ADD COLUMN play_count INTEGER DEFAULT 0");
+                    }
+                    rs.close();
                 } catch (SQLException ignored) {
-                    plugin.getLogger().warning("Failed to check/add 'type' column: " + ignored.getMessage());
+                    plugin.getLogger().warning("Failed to check/add columns: " + ignored.getMessage());
                 }
 
                 statement.execute("CREATE TABLE IF NOT EXISTS placed_replays (" +
@@ -84,7 +93,6 @@ public class DatabaseManager {
             }
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Could not initialize database", e);
-            // Disable plugin if database fails to initialize to prevent further errors
             plugin.getServer().getPluginManager().disablePlugin(plugin);
         }
     }
@@ -92,6 +100,7 @@ public class DatabaseManager {
     public int saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type, long timestamp) {
         String sql = "INSERT INTO death_replays (uuid, world, x, y, z, timestamp, replay_data, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
+        connectionLock.lock();
         try (PreparedStatement ps = getConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, playerUUID.toString());
             ps.setString(2, deathLocation.getWorld().getName());
@@ -111,12 +120,27 @@ public class DatabaseManager {
             }
         } catch (SQLException | IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save replay", e);
+        } finally {
+            connectionLock.unlock();
         }
         return -1;
     }
 
     public int saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type) {
         return saveReplay(playerUUID, deathLocation, frames, type, System.currentTimeMillis());
+    }
+
+    public void incrementPlayCount(int id) {
+        String sql = "UPDATE death_replays SET play_count = play_count + 1 WHERE id = ?";
+        connectionLock.lock();
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not increment play count", e);
+        } finally {
+            connectionLock.unlock();
+        }
     }
 
     public List<ReplayData> getReplaysByTimestamp(long timestamp) {
@@ -138,8 +162,9 @@ public class DatabaseManager {
                     byte[] data = rs.getBytes("replay_data");
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    int playCount = rs.getInt("play_count");
                     
-                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp));
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp, playCount));
                 }
             }
         } catch (SQLException | IOException e) {
@@ -152,9 +177,9 @@ public class DatabaseManager {
         List<ReplayData> replays = new ArrayList<>();
         String sql;
         if (type != null) {
-            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ? AND type = ?";
+            sql = "SELECT id, uuid, world, x, y, z, type, timestamp, play_count FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ? AND type = ?";
         } else {
-            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ?";
+            sql = "SELECT id, uuid, world, x, y, z, type, timestamp, play_count FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ?";
         }
         
         double xMin = location.getX() - radius;
@@ -186,9 +211,10 @@ public class DatabaseManager {
                     
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    int playCount = rs.getInt("play_count");
                     
                     long timestamp = rs.getLong("timestamp");
-                    replays.add(new ReplayData(id, uuid, loc, null, rType, timestamp));
+                    replays.add(new ReplayData(id, uuid, loc, null, rType, timestamp, playCount));
                 }
             }
         } catch (SQLException e) {
@@ -255,9 +281,10 @@ public class DatabaseManager {
                     byte[] data = rs.getBytes("replay_data");
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    int playCount = rs.getInt("play_count");
                     
                     long timestamp = rs.getLong("timestamp");
-                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, loc.getWorld()), rType, timestamp));
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, loc.getWorld()), rType, timestamp, playCount));
                 }
             }
         } catch (SQLException | IOException e) {
@@ -278,6 +305,7 @@ public class DatabaseManager {
 
     public int savePlacedReplay(int replayId, Location location) {
         String sql = "INSERT INTO placed_replays (replay_id, world, x, y, z, yaw, pitch) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        connectionLock.lock();
         try (PreparedStatement ps = getConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, replayId);
             ps.setString(2, location.getWorld().getName());
@@ -295,17 +323,22 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save placed replay", e);
+        } finally {
+            connectionLock.unlock();
         }
         return -1;
     }
 
     public void deletePlacedReplay(int id) {
         String sql = "DELETE FROM placed_replays WHERE id = ?";
+        connectionLock.lock();
         try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setInt(1, id);
             ps.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not delete placed replay", e);
+        } finally {
+            connectionLock.unlock();
         }
     }
 
@@ -345,9 +378,10 @@ public class DatabaseManager {
                     byte[] data = rs.getBytes("replay_data");
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    int playCount = rs.getInt("play_count");
                     
                     long timestamp = rs.getLong("timestamp");
-                    return new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp);
+                    return new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp, playCount);
                 }
             }
         } catch (SQLException | IOException e) {
@@ -373,9 +407,10 @@ public class DatabaseManager {
                     byte[] data = rs.getBytes("replay_data");
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    int playCount = rs.getInt("play_count");
                     
                     long timestamp = rs.getLong("timestamp");
-                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp));
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp, playCount));
                 }
             }
         } catch (SQLException | IOException e) {
@@ -388,17 +423,16 @@ public class DatabaseManager {
     private static final int DATA_VERSION = 2;
 
     public boolean deleteReplay(int id) {
-        // First, get the replay to check if it's a PVP replay
         ReplayData replay = getReplayById(id);
         if (replay == null) return false;
 
         String sql = "DELETE FROM death_replays WHERE id = ?";
         
-        // If it's PVP, we want to delete the partner replay too (same timestamp)
         if (replay.type == ReplayType.PVP) {
             sql = "DELETE FROM death_replays WHERE timestamp = ?";
         }
 
+        connectionLock.lock();
         try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             if (replay.type == ReplayType.PVP) {
                 ps.setLong(1, replay.timestamp);
@@ -411,6 +445,8 @@ public class DatabaseManager {
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not delete replay", e);
             return false;
+        } finally {
+            connectionLock.unlock();
         }
     }
 
@@ -512,8 +548,6 @@ public class DatabaseManager {
                     break;
                 } catch (Exception e) {
                     plugin.getLogger().warning("Error reading a frame: " + e.getMessage());
-                    // Continue to next frame if possible, or break? 
-                    // If structure is lost, we should probably break.
                     break;
                 }
             }
@@ -550,18 +584,24 @@ public class DatabaseManager {
         public final List<ReplayFrame> frames;
         public final ReplayType type;
         public final long timestamp;
+        public final int playCount;
 
         public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames, ReplayType type) {
-            this(id, uuid, location, frames, type, 0);
+            this(id, uuid, location, frames, type, 0, 0);
         }
 
         public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames, ReplayType type, long timestamp) {
+            this(id, uuid, location, frames, type, timestamp, 0);
+        }
+
+        public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames, ReplayType type, long timestamp, int playCount) {
             this.id = id;
             this.uuid = uuid;
             this.location = location;
             this.frames = frames;
             this.type = type;
             this.timestamp = timestamp;
+            this.playCount = playCount;
         }
     }
 

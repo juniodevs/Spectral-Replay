@@ -2,22 +2,21 @@
 
 # Minimum time between replay attempts (in ticks)
 # 20 ticks = 1 second
-# 12000 ticks = 10 minutes
-min-delay: 12000
+# 1200 ticks = 1 minute
+min-delay: 1200
 
 # Maximum time between replay attempts (in ticks)
-# 24000 ticks = 20 minutes
-max-delay: 24000
+# 3600 ticks = 3 minutes
+max-delay: 3600
 
 # Maximum number of concurrent replays allowed
 # If this limit is reached, no new replays will start until some finish
 # Must be at least 2 to allow PVP replays to function
 max-concurrent-replays: 2
 
-# Boss Replay Settings
-boss-replay:
-  min-delay: 6000 # 5 minutes
-  max-delay: 12000 # 10 minutes
+# Maximum number of times a replay can be played before being disabled
+# Set to -1 to disable this limit (infinite plays)
+max-plays-per-replay: 5
 
 # Defines if armor should be displayed on the ghost
 # true = displays the armor the player was wearing

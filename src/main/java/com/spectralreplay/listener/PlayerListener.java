@@ -55,7 +55,6 @@ public class PlayerListener implements Listener {
                 replayManager.setPlayerAction(event.getPlayer(), PlayerAction.SWING_HAND);
             }
         } catch (Exception e) {
-            // Ignore minor animation errors
         }
     }
 
@@ -74,12 +73,10 @@ public class PlayerListener implements Listener {
                 if (lastDamage != null && (lastDamage.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION || lastDamage.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)) {
                     replayManager.saveDeathReplay(player, ReplayType.DEATH);
                 } else {
-                    // It's a PVP death
                     long timestamp = System.currentTimeMillis();
                     replayManager.savePVPReplay(player, killer, timestamp);
                 }
             } else {
-                // Standard PvE death
                 replayManager.saveDeathReplay(player, ReplayType.DEATH);
             }
         } catch (Exception e) {

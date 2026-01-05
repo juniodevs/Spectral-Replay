@@ -7,29 +7,38 @@
 *   **Death Replays:** Automatically records the last few seconds before a player's death.
 *   **PVP Replays:** Special handling for PVP deaths, showing both the victim and the killer in a spectral battle.
 *   **Proximity System:** Ghosts appear when players get close to the death location, creating jump-scare or atmospheric moments.
+*   **Replay Lifecycle:** Replays have a "max plays" limit, after which they fade away and stop triggering automatically.
 *   **Visual Effects:**
     *   **Death:** Subtle `SCULK_SOUL` particles and transparent ghosts.
     *   **PVP:** Intense "Soul Vortex" particle effects and combat sounds.
 *   **Sound Design:** Custom soundscapes including ethereal screams, heartbeats, and combat noises to enhance immersion.
 *   **Citizens Integration:** Uses Citizens NPCs to create smooth, realistic player animations (movement, armor, items, sneaking, attacks).
-*   **Optimized:** Uses asynchronous processing for recording and database operations to minimize server lag.
-*   **Configurable:** Control cooldowns, replay duration, particle intensity, and armor visibility.
+*   **Optimized Performance:**
+    *   Uses asynchronous processing for recording and database operations.
+    *   Consolidated proximity checks to reduce server load.
+    *   Global cooldown system prevents multiple replays from overriding each other or spamming the server.
+*   **Configurable:** Control cooldowns, replay duration, particle intensity, armor visibility, and lifecycle.
 
 ## 📋 Requirements
 
-*   **Java:** 17 or higher.
+*   **Java:** 21 or higher.
 *   **Server:** Spigot/Paper 1.21+.
 *   **Dependencies:**
     *   [Citizens](https://ci.citizensnpcs.co/job/Citizens2/) (Required for NPC handling).
 
 ## ⚙️ Configuration
 
-The `config.yml` allows you to tweak the plugin's behavior:
+The `config.yml` allows you to tweak the plugin's behavior. Recently updated with new defaults and limits:
 
 ```yaml
 # Minimum/Maximum time between random replay attempts (in ticks)
-min-delay: 12000
-max-delay: 24000
+# Default: 1-3 minutes
+min-delay: 1200
+max-delay: 3600
+
+# Maximum number of times a specific replay can be triggered via proximity/random events
+# before being disabled forever (preserves database space but stops showing old ghosts).
+max-plays-per-replay: 5
 
 # Maximum number of concurrent replays allowed
 max-concurrent-replays: 2
@@ -56,7 +65,7 @@ All commands require the permission `spectralreplay.admin`.
 *   `/spectral list-placed` - List all permanently placed replays.
 *   `/spectral remove <id>` - Remove a placed replay.
 *   `/spectral delete <id>` - Delete a replay from the database.
-*   `/spectral reset-cooldowns` - Reset proximity cooldowns for all replays.
+*   `/spectral reset-cooldowns` - Reset proximity cooldowns AND the global replay timer.
 
 ## 🛠️ Building from Source
 
@@ -69,6 +78,6 @@ All commands require the permission `spectralreplay.admin`.
 
 *   **PVP Replays:** Trigger at any time of day.
 *   **Death Replays:** By default, standard death replays only trigger during the night (Minecraft time 13000-23000) for extra spookiness.
-*   **Boss Replays:** Currently disabled (planned for future updates).
+*   **Database:** Uses SQLite by default. The database now tracks how many times each replay has been shown to enforce the `max-plays-per-replay` limit.
 
 ---
