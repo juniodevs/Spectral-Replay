@@ -68,6 +68,7 @@ public class DatabaseManager {
                     }
                     rs.close();
                 } catch (SQLException ignored) {
+                    plugin.getLogger().warning("Failed to check/add 'type' column: " + ignored.getMessage());
                 }
 
                 statement.execute("CREATE TABLE IF NOT EXISTS placed_replays (" +
@@ -83,6 +84,8 @@ public class DatabaseManager {
             }
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Could not initialize database", e);
+            // Disable plugin if database fails to initialize to prevent further errors
+            plugin.getServer().getPluginManager().disablePlugin(plugin);
         }
     }
 
@@ -464,38 +467,48 @@ public class DatabaseManager {
 
             int size = dis.readInt();
             for (int i = 0; i < size; i++) {
-                double x = dis.readDouble();
-                double y = dis.readDouble();
-                double z = dis.readDouble();
-                float yaw = dis.readFloat();
-                float pitch = dis.readFloat();
-                int actionOrd = dis.readByte();
-                boolean sneaking = dis.readBoolean();
+                try {
+                    double x = dis.readDouble();
+                    double y = dis.readDouble();
+                    double z = dis.readDouble();
+                    float yaw = dis.readFloat();
+                    float pitch = dis.readFloat();
+                    int actionOrd = dis.readByte();
+                    boolean sneaking = dis.readBoolean();
 
-                int itemLen = dis.readInt();
-                ItemStack item = null;
-                if (itemLen > 0) {
-                    byte[] itemBytes = new byte[itemLen];
-                    dis.readFully(itemBytes);
-                    item = deserializeItem(itemBytes);
-                }
-
-                int armorCount = dis.readInt();
-                ItemStack[] armor = new ItemStack[armorCount];
-                for (int j = 0; j < armorCount; j++) {
-                    int armorLen = dis.readInt();
-                    if (armorLen > 0) {
-                        byte[] armorBytes = new byte[armorLen];
-                        dis.readFully(armorBytes);
-                        armor[j] = deserializeItem(armorBytes);
-                    } else {
-                        armor[j] = null;
+                    int itemLen = dis.readInt();
+                    ItemStack item = null;
+                    if (itemLen > 0) {
+                        byte[] itemBytes = new byte[itemLen];
+                        dis.readFully(itemBytes);
+                        item = deserializeItem(itemBytes);
                     }
-                }
 
-                Location loc = new Location(world, x, y, z, yaw, pitch);
-                PlayerAction action = PlayerAction.values()[actionOrd];
-                frames.add(new ReplayFrame(loc, action, sneaking, item, armor));
+                    int armorCount = dis.readInt();
+                    ItemStack[] armor = new ItemStack[armorCount];
+                    for (int j = 0; j < armorCount; j++) {
+                        int armorLen = dis.readInt();
+                        if (armorLen > 0) {
+                            byte[] armorBytes = new byte[armorLen];
+                            dis.readFully(armorBytes);
+                            armor[j] = deserializeItem(armorBytes);
+                        } else {
+                            armor[j] = null;
+                        }
+                    }
+
+                    Location loc = new Location(world, x, y, z, yaw, pitch);
+                    PlayerAction action = PlayerAction.values()[Math.min(Math.max(actionOrd, 0), PlayerAction.values().length - 1)];
+                    frames.add(new ReplayFrame(loc, action, sneaking, item, armor));
+                } catch (EOFException e) {
+                    plugin.getLogger().warning("Unexpected end of file while reading replay frames. Replay might be truncated.");
+                    break;
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error reading a frame: " + e.getMessage());
+                    // Continue to next frame if possible, or break? 
+                    // If structure is lost, we should probably break.
+                    break;
+                }
             }
         }
         return frames;
@@ -508,6 +521,7 @@ public class DatabaseManager {
             bos.writeObject(item);
             return os.toByteArray();
         } catch (IOException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to serialize item: " + item.getType(), e);
             return new byte[0];
         }
     }
@@ -517,6 +531,7 @@ public class DatabaseManager {
              BukkitObjectInputStream bis = new BukkitObjectInputStream(is)) {
             return (ItemStack) bis.readObject();
         } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to deserialize item", e);
             return null;
         }
     }

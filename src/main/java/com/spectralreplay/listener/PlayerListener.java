@@ -40,13 +40,21 @@ public class PlayerListener implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        replayManager.clearRecording(event.getPlayer());
+        try {
+            replayManager.clearRecording(event.getPlayer());
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error clearing recording for " + event.getPlayer().getName() + ": " + e.getMessage());
+        }
     }
 
     @EventHandler
     public void onPlayerAnimation(PlayerAnimationEvent event) {
-        if (event.getAnimationType() == PlayerAnimationType.ARM_SWING) {
-            replayManager.setPlayerAction(event.getPlayer(), PlayerAction.SWING_HAND);
+        try {
+            if (event.getAnimationType() == PlayerAnimationType.ARM_SWING) {
+                replayManager.setPlayerAction(event.getPlayer(), PlayerAction.SWING_HAND);
+            }
+        } catch (Exception e) {
+            // Ignore minor animation errors
         }
     }
 
@@ -56,32 +64,40 @@ public class PlayerListener implements Listener {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
-        Player player = event.getEntity();
-        Player killer = player.getKiller();
-        
-        if (killer != null) {
-            EntityDamageEvent lastDamage = player.getLastDamageCause();
-            if (lastDamage != null && (lastDamage.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION || lastDamage.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)) {
-                replayManager.saveDeathReplay(player, ReplayType.DEATH);
+        try {
+            Player player = event.getEntity();
+            Player killer = player.getKiller();
+            
+            if (killer != null) {
+                EntityDamageEvent lastDamage = player.getLastDamageCause();
+                if (lastDamage != null && (lastDamage.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION || lastDamage.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)) {
+                    replayManager.saveDeathReplay(player, ReplayType.DEATH);
+                } else {
+                    // It's a PVP death
+                    long timestamp = System.currentTimeMillis();
+                    replayManager.savePVPReplay(player, killer, timestamp);
+                }
             } else {
-                // It's a PVP death
-                long timestamp = System.currentTimeMillis();
-                replayManager.savePVPReplay(player, killer, timestamp);
+                // Standard PvE death
+                replayManager.saveDeathReplay(player, ReplayType.DEATH);
             }
-        } else {
-            // Standard PvE death
-            replayManager.saveDeathReplay(player, ReplayType.DEATH);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error handling player death event: " + e.getMessage());
         }
     }
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent event) {
-        EntityType type = event.getEntityType();
-        if (type == EntityType.WITHER || type == EntityType.ENDER_DRAGON || type == EntityType.WARDEN || type == EntityType.ELDER_GUARDIAN) {
-            Player killer = event.getEntity().getKiller();
-            if (killer != null) {
-                replayManager.saveDeathReplay(killer, ReplayType.BOSS_KILL);
+        try {
+            EntityType type = event.getEntityType();
+            if (type == EntityType.WITHER || type == EntityType.ENDER_DRAGON || type == EntityType.WARDEN || type == EntityType.ELDER_GUARDIAN) {
+                Player killer = event.getEntity().getKiller();
+                if (killer != null) {
+                    replayManager.saveDeathReplay(killer, ReplayType.BOSS_KILL);
+                }
             }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error handling entity death event: " + e.getMessage());
         }
     }
 

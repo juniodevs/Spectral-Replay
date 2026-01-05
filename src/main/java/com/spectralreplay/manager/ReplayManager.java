@@ -85,7 +85,11 @@ public class ReplayManager {
             @Override
             public void run() {
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    recordFrame(player);
+                    try {
+                        recordFrame(player);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error recording frame for player " + player.getName() + ": " + e.getMessage());
+                    }
                 }
             }
         }.runTaskTimer(plugin, 0L, 1L);
@@ -102,46 +106,58 @@ public class ReplayManager {
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!plugin.getConfig().getBoolean("proximity-replay.enabled", true)) return;
+                try {
+                    if (!plugin.getConfig().getBoolean("proximity-replay.enabled", true)) return;
 
-                double radius = plugin.getConfig().getDouble("proximity-replay.radius", 5.0);
-                long cooldownSeconds = plugin.getConfig().getLong("proximity-replay.cooldown", 600);
-                long cooldownMillis = cooldownSeconds * 1000;
+                    double radius = plugin.getConfig().getDouble("proximity-replay.radius", 5.0);
+                    long cooldownSeconds = plugin.getConfig().getLong("proximity-replay.cooldown", 600);
+                    long cooldownMillis = cooldownSeconds * 1000;
 
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    if (player.getGameMode() == GameMode.SPECTATOR) continue;
+                    for (Player player : Bukkit.getOnlinePlayers()) {
+                        try {
+                            if (player.getGameMode() == GameMode.SPECTATOR) continue;
 
-                    // Check if it is night (13000 - 23000)
-                    long time = player.getWorld().getTime();
-                    if (time < 13000 || time > 23000) continue;
+                            // Check if it is night (13000 - 23000)
+                            long time = player.getWorld().getTime();
+                            if (time < 13000 || time > 23000) continue;
 
-                    final Location playerLoc = player.getLocation();
-                    final UUID playerUUID = player.getUniqueId();
+                            final Location playerLoc = player.getLocation();
+                            final UUID playerUUID = player.getUniqueId();
 
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(playerLoc, radius, null);
-                            
-                            for (DatabaseManager.ReplayData replay : nearbyReplays) {
-                                if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
-                                if (activeReplays.contains(replay.id)) continue;
+                            new BukkitRunnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(playerLoc, radius, null);
+                                        
+                                        for (DatabaseManager.ReplayData replay : nearbyReplays) {
+                                            if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
+                                            if (activeReplays.contains(replay.id)) continue;
 
-                                Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new ConcurrentHashMap<>());
-                                long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
+                                            Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new ConcurrentHashMap<>());
+                                            long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
 
-                                if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
-                                    // Play the replay
-                                    // playGhostReplay handles async fetching if frames are null, which they are here.
-                                    playGhostReplay(replay);
-                                    playerCooldowns.put(replay.id, System.currentTimeMillis());
-                                    
-                                    // Only trigger one replay per check to avoid chaos
-                                    break; 
+                                            if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
+                                                // Play the replay
+                                                // playGhostReplay handles async fetching if frames are null, which they are here.
+                                                playGhostReplay(replay);
+                                                playerCooldowns.put(replay.id, System.currentTimeMillis());
+                                                
+                                                // Only trigger one replay per check to avoid chaos
+                                                break; 
+                                            }
+                                        }
+                                    } catch (Exception e) {
+                                        plugin.getLogger().warning("Error in proximity check task: " + e.getMessage());
+                                    }
                                 }
-                            }
+                            }.runTaskAsynchronously(plugin);
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Error processing player " + player.getName() + " for proximity replay: " + e.getMessage());
                         }
-                    }.runTaskAsynchronously(plugin);
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error in proximity check loop: " + e.getMessage());
                 }
             }
         }.runTaskTimer(plugin, 100L, 20L); // Check every second (20 ticks), start after 5s
@@ -161,14 +177,22 @@ public class ReplayManager {
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        DatabaseManager.ReplayData data = databaseManager.getReplayById(placed.replayId);
-                        if (data != null) {
-                            new BukkitRunnable() {
-                                @Override
-                                public void run() {
-                                    playGhostReplay(data, placed.location);
-                                }
-                            }.runTask(plugin);
+                        try {
+                            DatabaseManager.ReplayData data = databaseManager.getReplayById(placed.replayId);
+                            if (data != null) {
+                                new BukkitRunnable() {
+                                    @Override
+                                    public void run() {
+                                        try {
+                                            playGhostReplay(data, placed.location);
+                                        } catch (Exception e) {
+                                            plugin.getLogger().warning("Error playing placed replay: " + e.getMessage());
+                                        }
+                                    }
+                                }.runTask(plugin);
+                            }
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Error fetching placed replay data: " + e.getMessage());
                         }
                     }
                 }.runTaskAsynchronously(plugin);
@@ -233,94 +257,106 @@ public class ReplayManager {
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (Map.Entry<Player, Location> entry : candidates.entrySet()) {
-                    if (ThreadLocalRandom.current().nextDouble() > 0.3) continue;
+                try {
+                    for (Map.Entry<Player, Location> entry : candidates.entrySet()) {
+                        if (ThreadLocalRandom.current().nextDouble() > 0.3) continue;
 
-                    Location loc = entry.getValue();
-                    List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(loc, 20.0, type);
-                    
-                    if (nearbyReplays.isEmpty()) continue;
+                        Location loc = entry.getValue();
+                        List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(loc, 20.0, type);
+                        
+                        if (nearbyReplays.isEmpty()) continue;
 
-                    List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
-                    for (DatabaseManager.ReplayData r : nearbyReplays) {
-                        if (!activeReplays.contains(r.id)) {
-                            availableReplays.add(r);
+                        List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
+                        for (DatabaseManager.ReplayData r : nearbyReplays) {
+                            if (!activeReplays.contains(r.id)) {
+                                availableReplays.add(r);
+                            }
                         }
+
+                        if (availableReplays.isEmpty()) continue;
+
+                        DatabaseManager.ReplayData replay = availableReplays.get(ThreadLocalRandom.current().nextInt(availableReplays.size()));
+                        
+                        // Switch back to main thread to play
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    playGhostReplay(replay);
+                                } catch (Exception e) {
+                                    plugin.getLogger().warning("Error playing ghost replay: " + e.getMessage());
+                                }
+                            }
+                        }.runTask(plugin);
+                        return; // Found one, stop searching
                     }
-
-                    if (availableReplays.isEmpty()) continue;
-
-                    DatabaseManager.ReplayData replay = availableReplays.get(ThreadLocalRandom.current().nextInt(availableReplays.size()));
-                    
-                    // Switch back to main thread to play
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            playGhostReplay(replay);
-                        }
-                    }.runTask(plugin);
-                    return; // Found one, stop searching
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error in attemptReplay async task: " + e.getMessage());
                 }
             }
         }.runTaskAsynchronously(plugin);
     }
 
     private void recordFrame(Player player) {
-        UUID uuid = player.getUniqueId();
-        Deque<ReplayFrame> buffer = recordings.computeIfAbsent(uuid, k -> new ArrayDeque<>(MAX_FRAMES));
+        try {
+            UUID uuid = player.getUniqueId();
+            Deque<ReplayFrame> buffer = recordings.computeIfAbsent(uuid, k -> new ArrayDeque<>(MAX_FRAMES));
 
-        Location loc = player.getLocation();
-        PlayerAction action = currentActions.getOrDefault(uuid, PlayerAction.NONE);
-        boolean isSneaking = player.isSneaking();
-        
-        ItemStack currentItem = player.getInventory().getItemInMainHand();
-        ItemStack[] currentArmor = player.getInventory().getArmorContents();
-        
-        ReplayFrame lastFrame = buffer.peekLast();
-        
-        ItemStack savedItem = null;
-        if (currentItem != null && currentItem.getType() != Material.AIR) {
-            if (lastFrame != null && isSimilar(lastFrame.getItemInHand(), currentItem)) {
-                savedItem = lastFrame.getItemInHand();
-            } else {
-                savedItem = currentItem.clone();
-            }
-        }
-        
-        ItemStack[] savedArmor = null;
-        if (currentArmor != null) {
-            boolean sameArmor = false;
-            if (lastFrame != null && lastFrame.getArmor() != null && lastFrame.getArmor().length == currentArmor.length) {
-                sameArmor = true;
-                for (int i = 0; i < currentArmor.length; i++) {
-                    ItemStack c = currentArmor[i];
-                    ItemStack l = lastFrame.getArmor()[i];
-                    if ((c == null && l != null) || (c != null && l == null) || (c != null && !isSimilar(c, l))) {
-                        sameArmor = false;
-                        break;
-                    }
+            Location loc = player.getLocation();
+            PlayerAction action = currentActions.getOrDefault(uuid, PlayerAction.NONE);
+            boolean isSneaking = player.isSneaking();
+            
+            ItemStack currentItem = player.getInventory().getItemInMainHand();
+            ItemStack[] currentArmor = player.getInventory().getArmorContents();
+            
+            ReplayFrame lastFrame = buffer.peekLast();
+            
+            ItemStack savedItem = null;
+            if (currentItem != null && currentItem.getType() != Material.AIR) {
+                if (lastFrame != null && isSimilar(lastFrame.getItemInHand(), currentItem)) {
+                    savedItem = lastFrame.getItemInHand();
+                } else {
+                    savedItem = currentItem.clone();
                 }
             }
             
-            if (sameArmor) {
-                savedArmor = lastFrame.getArmor();
-            } else {
-                savedArmor = new ItemStack[currentArmor.length];
-                for (int i = 0; i < currentArmor.length; i++) {
-                    savedArmor[i] = currentArmor[i] != null ? currentArmor[i].clone() : null;
+            ItemStack[] savedArmor = null;
+            if (currentArmor != null) {
+                boolean sameArmor = false;
+                if (lastFrame != null && lastFrame.getArmor() != null && lastFrame.getArmor().length == currentArmor.length) {
+                    sameArmor = true;
+                    for (int i = 0; i < currentArmor.length; i++) {
+                        ItemStack c = currentArmor[i];
+                        ItemStack l = lastFrame.getArmor()[i];
+                        if ((c == null && l != null) || (c != null && l == null) || (c != null && !isSimilar(c, l))) {
+                            sameArmor = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if (sameArmor) {
+                    savedArmor = lastFrame.getArmor();
+                } else {
+                    savedArmor = new ItemStack[currentArmor.length];
+                    for (int i = 0; i < currentArmor.length; i++) {
+                        savedArmor[i] = currentArmor[i] != null ? currentArmor[i].clone() : null;
+                    }
                 }
             }
+
+            ReplayFrame frame = new ReplayFrame(loc, action, isSneaking, savedItem, savedArmor);
+
+            buffer.addLast(frame);
+
+            if (buffer.size() > MAX_FRAMES) {
+                buffer.removeFirst();
+            }
+
+            currentActions.put(uuid, PlayerAction.NONE);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to record frame for " + player.getName() + ": " + e.getMessage());
         }
-
-        ReplayFrame frame = new ReplayFrame(loc, action, isSneaking, savedItem, savedArmor);
-
-        buffer.addLast(frame);
-
-        if (buffer.size() > MAX_FRAMES) {
-            buffer.removeFirst();
-        }
-
-        currentActions.put(uuid, PlayerAction.NONE);
     }
 
     private boolean isSimilar(ItemStack item1, ItemStack item2) {
@@ -379,45 +415,57 @@ public class ReplayManager {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    List<ReplayFrame> frames = replayData.frames;
-                    if (frames == null) {
-                        frames = databaseManager.getReplayFrames(replayData.id);
-                    }
-                    
-                    if (frames.isEmpty()) return;
-
-                    DatabaseManager.ReplayData fullData = new DatabaseManager.ReplayData(
-                            replayData.id, replayData.uuid, replayData.location, frames, replayData.type, replayData.timestamp
-                    );
-
-                    DatabaseManager.ReplayData partnerData = null;
-                    if (fullData.type == ReplayType.PVP && origin == null) {
-                         List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(fullData.timestamp);
-                         for (DatabaseManager.ReplayData r : partners) {
-                             if (r.id != fullData.id && !r.uuid.equals(fullData.uuid)) {
-                                 partnerData = r;
-                                 break;
-                             }
-                         }
-                         if (partnerData == null) {
-                             plugin.getLogger().warning("Could not find partner replay for PVP replay ID: " + fullData.id + " (Timestamp: " + fullData.timestamp + ")");
-                         }
-                    }
-                    
-                    final DatabaseManager.ReplayData finalPartner = partnerData;
-
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            playGhostReplayInternal(fullData, origin, finalPartner);
+                    try {
+                        List<ReplayFrame> frames = replayData.frames;
+                        if (frames == null) {
+                            frames = databaseManager.getReplayFrames(replayData.id);
                         }
-                    }.runTask(plugin);
+                        
+                        if (frames.isEmpty()) return;
+
+                        DatabaseManager.ReplayData fullData = new DatabaseManager.ReplayData(
+                                replayData.id, replayData.uuid, replayData.location, frames, replayData.type, replayData.timestamp
+                        );
+
+                        DatabaseManager.ReplayData partnerData = null;
+                        if (fullData.type == ReplayType.PVP && origin == null) {
+                             List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(fullData.timestamp);
+                             for (DatabaseManager.ReplayData r : partners) {
+                                 if (r.id != fullData.id && !r.uuid.equals(fullData.uuid)) {
+                                     partnerData = r;
+                                     break;
+                                 }
+                             }
+                             if (partnerData == null) {
+                                 plugin.getLogger().warning("Could not find partner replay for PVP replay ID: " + fullData.id + " (Timestamp: " + fullData.timestamp + ")");
+                             }
+                        }
+                        
+                        final DatabaseManager.ReplayData finalPartner = partnerData;
+
+                        new BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    playGhostReplayInternal(fullData, origin, finalPartner);
+                                } catch (Exception e) {
+                                    plugin.getLogger().warning("Error in playGhostReplayInternal: " + e.getMessage());
+                                }
+                            }
+                        }.runTask(plugin);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error preparing ghost replay: " + e.getMessage());
+                    }
                 }
             }.runTaskAsynchronously(plugin);
             return;
         }
         
-        playGhostReplayInternal(replayData, origin, null);
+        try {
+            playGhostReplayInternal(replayData, origin, null);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error in playGhostReplayInternal (sync): " + e.getMessage());
+        }
     }
 
     private void playGhostReplayInternal(DatabaseManager.ReplayData replayData, Location origin, DatabaseManager.ReplayData preloadedPartner) {
