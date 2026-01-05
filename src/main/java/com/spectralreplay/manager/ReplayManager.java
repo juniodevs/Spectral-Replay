@@ -261,10 +261,47 @@ public class ReplayManager {
         Location loc = player.getLocation();
         PlayerAction action = currentActions.getOrDefault(uuid, PlayerAction.NONE);
         boolean isSneaking = player.isSneaking();
-        ItemStack item = player.getInventory().getItemInMainHand();
-        ItemStack[] armor = player.getInventory().getArmorContents();
+        
+        ItemStack currentItem = player.getInventory().getItemInMainHand();
+        ItemStack[] currentArmor = player.getInventory().getArmorContents();
+        
+        ReplayFrame lastFrame = buffer.peekLast();
+        
+        ItemStack savedItem = null;
+        if (currentItem != null && currentItem.getType() != Material.AIR) {
+            if (lastFrame != null && lastFrame.getItemInHand() != null && lastFrame.getItemInHand().equals(currentItem)) {
+                savedItem = lastFrame.getItemInHand();
+            } else {
+                savedItem = currentItem.clone();
+            }
+        }
+        
+        ItemStack[] savedArmor = null;
+        if (currentArmor != null) {
+            boolean sameArmor = false;
+            if (lastFrame != null && lastFrame.getArmor() != null && lastFrame.getArmor().length == currentArmor.length) {
+                sameArmor = true;
+                for (int i = 0; i < currentArmor.length; i++) {
+                    ItemStack c = currentArmor[i];
+                    ItemStack l = lastFrame.getArmor()[i];
+                    if ((c == null && l != null) || (c != null && l == null) || (c != null && !c.equals(l))) {
+                        sameArmor = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (sameArmor) {
+                savedArmor = lastFrame.getArmor();
+            } else {
+                savedArmor = new ItemStack[currentArmor.length];
+                for (int i = 0; i < currentArmor.length; i++) {
+                    savedArmor[i] = currentArmor[i] != null ? currentArmor[i].clone() : null;
+                }
+            }
+        }
 
-        ReplayFrame frame = new ReplayFrame(loc, action, isSneaking, item, armor);
+        ReplayFrame frame = new ReplayFrame(loc, action, isSneaking, savedItem, savedArmor);
 
         buffer.addLast(frame);
 
