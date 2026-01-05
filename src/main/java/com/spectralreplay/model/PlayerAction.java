@@ -5,5 +5,6 @@ public enum PlayerAction {
     SWING_HAND,
     SWING_OFF_HAND,
     SNEAK,
-    UNSNEAK
+    UNSNEAK,
+    ATTACK
 }

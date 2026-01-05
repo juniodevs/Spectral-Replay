@@ -73,7 +73,6 @@ public class ReplayManager {
                 team.setOption(Team.Option.COLLISION_RULE, Team.OptionStatus.NEVER);
                 team.setColor(ChatColor.GRAY);
             } catch (IllegalArgumentException e) {
-                // Team might have been created by another thread or plugin in the meantime
                 team = scoreboard.getTeam("spectral_ghosts");
             }
         }
@@ -134,7 +133,6 @@ public class ReplayManager {
                                         for (DatabaseManager.ReplayData replay : nearbyReplays) {
                                             if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
                                             
-                                            // DEATH replays only at night (13000 - 23000)
                                             if (replay.type == ReplayType.DEATH && (time < 13000 || time > 23000)) continue;
                                             
                                             if (activeReplays.contains(replay.id)) continue;
@@ -156,7 +154,6 @@ public class ReplayManager {
                                                     }
                                                 }
                                                 
-                                                // Only trigger one replay per check to avoid chaos
                                                 break; 
                                             }
                                         }
@@ -173,7 +170,7 @@ public class ReplayManager {
                     plugin.getLogger().warning("Error in proximity check loop: " + e.getMessage());
                 }
             }
-        }.runTaskTimer(plugin, 100L, 20L); // Check every second (20 ticks), start after 5s
+        }.runTaskTimer(plugin, 100L, 20L);
     }
 
     private void loadPlacedReplays() {
@@ -210,7 +207,7 @@ public class ReplayManager {
                     }
                 }.runTaskAsynchronously(plugin);
             }
-        }.runTaskTimer(plugin, 100L, 600L); // Start after 5s, repeat every 30s (adjust as needed)
+        }.runTaskTimer(plugin, 100L, 600L);
         
         placedReplayTasks.put(placed.id, task);
     }
@@ -290,7 +287,6 @@ public class ReplayManager {
 
                         DatabaseManager.ReplayData replay = availableReplays.get(ThreadLocalRandom.current().nextInt(availableReplays.size()));
                         
-                        // Switch back to main thread to play
                         new BukkitRunnable() {
                             @Override
                             public void run() {
@@ -301,7 +297,7 @@ public class ReplayManager {
                                 }
                             }
                         }.runTask(plugin);
-                        return; // Found one, stop searching
+                        return;
                     }
                 } catch (Exception e) {
                     plugin.getLogger().warning("Error in attemptReplay async task: " + e.getMessage());
@@ -381,6 +377,12 @@ public class ReplayManager {
     }
 
     public void setPlayerAction(Player player, PlayerAction action) {
+        if (action == PlayerAction.SWING_HAND) {
+            PlayerAction current = currentActions.get(player.getUniqueId());
+            if (current == PlayerAction.ATTACK) {
+                return;
+            }
+        }
         currentActions.put(player.getUniqueId(), action);
     }
 
@@ -405,7 +407,10 @@ public class ReplayManager {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames, type, timestamp);
+                    int id = databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames, type, timestamp);
+                    if (id != -1) {
+                        proximityCooldowns.put(id, System.currentTimeMillis());
+                    }
                 }
             }.runTaskAsynchronously(plugin);
         } else {
@@ -486,9 +491,7 @@ public class ReplayManager {
 
         DatabaseManager.ReplayData partnerReplay = preloadedPartner;
         
-        // Fallback check if partner wasn't preloaded (shouldn't happen with new logic, but keeps compatibility)
         if (replayData.type == ReplayType.PVP && partnerReplay == null && origin == null) {
-             // Skip partner to avoid sync DB call
         }
 
         if (partnerReplay != null && origin == null && activeReplays.contains(partnerReplay.id)) {
@@ -497,7 +500,6 @@ public class ReplayManager {
 
         if (origin == null) {
             int maxConcurrent = plugin.getConfig().getInt("max-concurrent-replays", 5);
-            // Safety check: PVP replays require 2 slots. If config is 1, they would never play.
             if (maxConcurrent < 2) maxConcurrent = 2;
 
             int needed = 1;
@@ -689,22 +691,27 @@ public class ReplayManager {
                                 world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
                                 world.spawnParticle(Particle.FIREWORK, particleLoc, 3, 0.2, 0.5, 0.2, 0.05);
                                 world.spawnParticle(Particle.END_ROD, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
-                            } else if (replayData.type == ReplayType.PVP) {
-                                world.spawnParticle(Particle.CRIT, particleLoc, 3, 0.2, 0.5, 0.2, 0.1);
-                                world.spawnParticle(Particle.SWEEP_ATTACK, particleLoc, 1, 0.1, 0.1, 0.1, 0);
+                            } else if (replayData.type == ReplayType.PVP) {                                
+
+                                world.spawnParticle(Particle.SCULK_SOUL, particleLoc, 2, 0.3, 0.5, 0.3, 0.02);
                                 
-                                if (frameIndex % 10 == 0) {
-                                    world.playSound(particleLoc, Sound.ITEM_SHIELD_BLOCK, 0.5f, 1.0f);
-                                }
-                                if (frameIndex % 15 == 0) {
-                                    world.playSound(particleLoc, Sound.ENTITY_PLAYER_HURT, 0.3f, 1.0f);
-                                }
+                                double maxRadius = 1.2;
+                                double height = 2.2;
+                                
+                                double y = (frameIndex % 30) / 30.0 * height; 
+                                double r = maxRadius * (1 - (y / height));
+                                double time = frameIndex * 0.3;
+                                
+                                double x1 = r * Math.cos(time + y * 4);
+                                double z1 = r * Math.sin(time + y * 4);
+                                world.spawnParticle(Particle.SCULK_SOUL, targetLoc.clone().add(x1, y, z1), 1, 0, 0, 0, 0);
+                                
+                                double x2 = r * Math.cos(time + y * 4 + Math.PI);
+                                double z2 = r * Math.sin(time + y * 4 + Math.PI);
+                                world.spawnParticle(Particle.SCULK_SOUL, targetLoc.clone().add(x2, y, z2), 1, 0, 0, 0, 0);
+
                             } else {
-                                world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
-                                world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
-                                
-                                Particle.DustOptions dustOptions = new Particle.DustOptions(Color.fromRGB(100, 0, 0), 1.0F);
-                                world.spawnParticle(Particle.DUST, particleLoc, 5, 0.2, 0.5, 0.2, 0, dustOptions);
+                                world.spawnParticle(Particle.SCULK_SOUL, particleLoc, 3, 0.2, 0.5, 0.2, 0.02);
                             }
                         }
                     }
@@ -733,13 +740,20 @@ public class ReplayManager {
                     if (npc.getEntity() instanceof Player) {
                         Player npcPlayer = (Player) npc.getEntity();
                         
-                        if (replayData.type == ReplayType.BOSS_KILL || replayData.type == ReplayType.PVP) {
+                        if (replayData.type == ReplayType.BOSS_KILL) {
                             if (npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
                                 npcPlayer.removePotionEffect(PotionEffectType.INVISIBILITY);
                             }
                             
                             if (!npcPlayer.hasPotionEffect(PotionEffectType.GLOWING)) {
                                 npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 60, 0, false, false, false));
+                            }
+                        } else if (replayData.type == ReplayType.PVP) {
+                            if (!npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
+                                npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 1, false, false));
+                            }
+                            if (npcPlayer.hasPotionEffect(PotionEffectType.GLOWING)) {
+                                npcPlayer.removePotionEffect(PotionEffectType.GLOWING);
                             }
                         } else {
                             if (!npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
@@ -751,6 +765,13 @@ public class ReplayManager {
                             npcPlayer.swingMainHand();
                             if (replayData.type == ReplayType.PVP) {
                                 targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_PLAYER_ATTACK_STRONG, 1.0f, 1.0f);
+                            }
+                        } else if (frame.getAction() == PlayerAction.ATTACK) {
+                            npcPlayer.swingMainHand();
+                            if (replayData.type == ReplayType.PVP) {
+                                targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_VEX_HURT, 1.0f, 0.6f);
+                                targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_PHANTOM_HURT, 0.5f, 0.8f);
+                                targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_PLAYER_HURT, 1.0f, 0.5f);
                             }
                         }
                         
@@ -782,7 +803,6 @@ public class ReplayManager {
                     
                     try {
                         if (replayData.type == ReplayType.PVP) {
-                            // Epic Anime Explosion
                             safeSpawnParticle(loc.getWorld(), Particle.EXPLOSION_EMITTER, loc, 5, 0, 0, 0, 0);
                             safeSpawnParticle(loc.getWorld(), Particle.FLASH, loc, 2, 0, 0, 0, 0);
                             safeSpawnParticle(loc.getWorld(), Particle.SONIC_BOOM, loc, 1, 0, 0, 0, 0);

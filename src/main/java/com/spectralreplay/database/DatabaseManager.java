@@ -89,10 +89,10 @@ public class DatabaseManager {
         }
     }
 
-    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type, long timestamp) {
+    public int saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type, long timestamp) {
         String sql = "INSERT INTO death_replays (uuid, world, x, y, z, timestamp, replay_data, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
-        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, playerUUID.toString());
             ps.setString(2, deathLocation.getWorld().getName());
             ps.setDouble(3, deathLocation.getX());
@@ -103,13 +103,20 @@ public class DatabaseManager {
             ps.setString(8, type.name());
             
             ps.executeUpdate();
+            
+            try (ResultSet rs = ps.getGeneratedKeys()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
         } catch (SQLException | IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save replay", e);
         }
+        return -1;
     }
 
-    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type) {
-        saveReplay(playerUUID, deathLocation, frames, type, System.currentTimeMillis());
+    public int saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type) {
+        return saveReplay(playerUUID, deathLocation, frames, type, System.currentTimeMillis());
     }
 
     public List<ReplayData> getReplaysByTimestamp(long timestamp) {

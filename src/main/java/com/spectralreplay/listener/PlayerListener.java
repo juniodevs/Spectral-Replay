@@ -101,4 +101,15 @@ public class PlayerListener implements Listener {
         }
     }
 
+    @EventHandler
+    public void onEntityDamageByEntity(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
+        try {
+            if (event.getDamager() instanceof Player) {
+                Player player = (Player) event.getDamager();
+                replayManager.setPlayerAction(player, PlayerAction.ATTACK);
+            }
+        } catch (Exception e) {
+        }
+    }
+
 }
