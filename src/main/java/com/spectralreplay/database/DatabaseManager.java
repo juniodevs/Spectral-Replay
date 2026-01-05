@@ -72,7 +72,7 @@ public class DatabaseManager {
         }
     }
 
-    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type) {
+    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type, long timestamp) {
         String sql = "INSERT INTO death_replays (uuid, world, x, y, z, timestamp, replay_data, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -81,7 +81,7 @@ public class DatabaseManager {
             ps.setDouble(3, deathLocation.getX());
             ps.setDouble(4, deathLocation.getY());
             ps.setDouble(5, deathLocation.getZ());
-            ps.setLong(6, System.currentTimeMillis());
+            ps.setLong(6, timestamp);
             ps.setBytes(7, serializeFrames(frames));
             ps.setString(8, type.name());
             
@@ -89,6 +89,40 @@ public class DatabaseManager {
         } catch (SQLException | IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save replay", e);
         }
+    }
+
+    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type) {
+        saveReplay(playerUUID, deathLocation, frames, type, System.currentTimeMillis());
+    }
+
+    public List<ReplayData> getReplaysByTimestamp(long timestamp, UUID excludeUUID) {
+        List<ReplayData> replays = new ArrayList<>();
+        String sql = "SELECT * FROM death_replays WHERE timestamp = ? AND uuid != ?";
+        
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setLong(1, timestamp);
+            ps.setString(2, excludeUUID.toString());
+            
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int id = rs.getInt("id");
+                    UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    String worldName = rs.getString("world");
+                    World world = Bukkit.getWorld(worldName);
+                    if (world == null) continue;
+                    
+                    Location loc = new Location(world, rs.getDouble("x"), rs.getDouble("y"), rs.getDouble("z"));
+                    byte[] data = rs.getBytes("replay_data");
+                    String typeStr = rs.getString("type");
+                    ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp));
+                }
+            }
+        } catch (SQLException | IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not load replays by timestamp", e);
+        }
+        return replays;
     }
 
     public List<ReplayData> getNearbyReplays(Location location, double radius, ReplayType type) {
@@ -128,7 +162,8 @@ public class DatabaseManager {
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
                     
-                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, loc.getWorld()), rType));
+                    long timestamp = rs.getLong("timestamp");
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, loc.getWorld()), rType, timestamp));
                 }
             }
         } catch (SQLException | IOException e) {
@@ -217,7 +252,8 @@ public class DatabaseManager {
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
                     
-                    return new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType);
+                    long timestamp = rs.getLong("timestamp");
+                    return new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp);
                 }
             }
         } catch (SQLException | IOException e) {
@@ -244,7 +280,8 @@ public class DatabaseManager {
                     String typeStr = rs.getString("type");
                     ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
                     
-                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType));
+                    long timestamp = rs.getLong("timestamp");
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType, timestamp));
                 }
             }
         } catch (SQLException | IOException e) {
@@ -380,13 +417,19 @@ public class DatabaseManager {
         public final Location location;
         public final List<ReplayFrame> frames;
         public final ReplayType type;
+        public final long timestamp;
 
         public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames, ReplayType type) {
+            this(id, uuid, location, frames, type, 0);
+        }
+
+        public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames, ReplayType type, long timestamp) {
             this.id = id;
             this.uuid = uuid;
             this.location = location;
             this.frames = frames;
             this.type = type;
+            this.timestamp = timestamp;
         }
     }
 

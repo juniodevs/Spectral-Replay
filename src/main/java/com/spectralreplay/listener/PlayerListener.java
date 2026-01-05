@@ -26,6 +26,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.List;
 
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 
 public class PlayerListener implements Listener {
 
@@ -56,7 +57,21 @@ public class PlayerListener implements Listener {
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
-        replayManager.saveDeathReplay(player, ReplayType.DEATH);
+        Player killer = player.getKiller();
+        
+        if (killer != null) {
+            EntityDamageEvent lastDamage = player.getLastDamageCause();
+            if (lastDamage != null && (lastDamage.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION || lastDamage.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)) {
+                replayManager.saveDeathReplay(player, ReplayType.DEATH);
+            } else {
+                // It's a PVP death
+                long timestamp = System.currentTimeMillis();
+                replayManager.savePVPReplay(player, killer, timestamp);
+            }
+        } else {
+            // Standard PvE death
+            replayManager.saveDeathReplay(player, ReplayType.DEATH);
+        }
     }
 
     @EventHandler

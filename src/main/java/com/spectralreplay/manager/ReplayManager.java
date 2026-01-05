@@ -190,13 +190,22 @@ public class ReplayManager {
         return new ArrayList<>(buffer);
     }
 
+    public void savePVPReplay(Player victim, Player killer, long timestamp) {
+        saveReplay(victim, ReplayType.PVP, timestamp);
+        saveReplay(killer, ReplayType.PVP, timestamp);
+    }
+
     public void saveDeathReplay(Player player, ReplayType type) {
+        saveReplay(player, type, System.currentTimeMillis());
+    }
+
+    private void saveReplay(Player player, ReplayType type, long timestamp) {
         List<ReplayFrame> frames = getSnapshot(player);
         if (!frames.isEmpty()) {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames, type);
+                    databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames, type, timestamp);
                 }
             }.runTaskAsynchronously(plugin);
         }
@@ -214,21 +223,54 @@ public class ReplayManager {
 
     public void playGhostReplay(DatabaseManager.ReplayData replayData, Location origin) {
         if (origin == null && activeReplays.contains(replayData.id)) return;
-        if (origin == null) activeReplays.add(replayData.id);
 
+        DatabaseManager.ReplayData partnerReplay = null;
+        if (replayData.type == ReplayType.PVP) {
+            List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(replayData.timestamp, replayData.uuid);
+            for (DatabaseManager.ReplayData r : partners) {
+                if (r.id != replayData.id) {
+                    partnerReplay = r;
+                    break;
+                }
+            }
+
+            if (partnerReplay != null && origin == null && activeReplays.contains(partnerReplay.id)) {
+                return;
+            }
+        }
+
+        if (origin == null) {
+            activeReplays.add(replayData.id);
+            if (partnerReplay != null) {
+                activeReplays.add(partnerReplay.id);
+            }
+        }
+
+        startPlayback(replayData, origin, () -> {
+            if (origin == null) activeReplays.remove(replayData.id);
+        });
+
+        if (partnerReplay != null) {
+            final DatabaseManager.ReplayData finalPartnerReplay = partnerReplay;
+            startPlayback(finalPartnerReplay, origin, () -> {
+                if (origin == null) activeReplays.remove(finalPartnerReplay.id);
+            });
+        }
+    }
+
+    private void startPlayback(DatabaseManager.ReplayData replayData, Location origin, Runnable onComplete) {
         List<ReplayFrame> frames = replayData.frames;
         if (frames.isEmpty()) {
-            if (origin == null) activeReplays.remove(replayData.id);
+            onComplete.run();
             return;
         }
 
         Location startLoc = origin != null ? origin.clone() : frames.get(0).getLocation();
         if (!startLoc.getChunk().isLoaded()) {
-            if (origin == null) activeReplays.remove(replayData.id);
+            onComplete.run();
             return;
         }
 
-        // Calculate offset if origin is provided
         org.bukkit.util.Vector offset = origin != null 
             ? origin.toVector().subtract(frames.get(0).getLocation().toVector()) 
             : new org.bukkit.util.Vector(0, 0, 0);
@@ -238,7 +280,7 @@ public class ReplayManager {
         net.citizensnpcs.api.npc.NPCRegistry registry = CitizensAPI.getNPCRegistry();
         if (registry == null) {
             plugin.getLogger().severe("Citizens NPC Registry is null! Is Citizens enabled correctly?");
-            if (origin == null) activeReplays.remove(replayData.id);
+            onComplete.run();
             return;
         }
 
@@ -257,6 +299,8 @@ public class ReplayManager {
         
         if (replayData.type == ReplayType.BOSS_KILL) {
             startLoc.getWorld().playSound(startLoc, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+        } else if (replayData.type == ReplayType.PVP) {
+            startLoc.getWorld().playSound(startLoc, Sound.EVENT_RAID_HORN, 1.0f, 0.8f);
         } else {
             startLoc.getWorld().playSound(startLoc, Sound.AMBIENT_SOUL_SAND_VALLEY_MOOD, 1.0f, 0.8f);
         }
@@ -283,8 +327,12 @@ public class ReplayManager {
             @Override
             public void run() {
                 if (frameIndex >= frames.size() || !npc.isSpawned()) {
-                    cleanup();
                     this.cancel();
+                    try {
+                        cleanup();
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error during replay cleanup: " + e.getMessage());
+                    }
                     return;
                 }
 
@@ -306,7 +354,7 @@ public class ReplayManager {
                         lastEquippedItem = currentItem;
                     }
 
-                    if (plugin.getConfig().getBoolean("armor", true) || replayData.type == ReplayType.BOSS_KILL) {
+                    if (plugin.getConfig().getBoolean("armor", true) || replayData.type == ReplayType.BOSS_KILL || replayData.type == ReplayType.PVP) {
                         ItemStack[] currentArmor = frame.getArmor();
                         if (!Arrays.equals(currentArmor, lastEquippedArmor)) {
                             if (currentArmor != null && currentArmor.length == 4) {
@@ -328,6 +376,9 @@ public class ReplayManager {
                             world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
                             world.spawnParticle(Particle.FIREWORK, particleLoc, 3, 0.2, 0.5, 0.2, 0.05);
                             world.spawnParticle(Particle.END_ROD, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
+                        } else if (replayData.type == ReplayType.PVP) {
+                            world.spawnParticle(Particle.CRIT, particleLoc, 3, 0.2, 0.5, 0.2, 0.1);
+                            world.spawnParticle(Particle.SWEEP_ATTACK, particleLoc, 1, 0.1, 0.1, 0.1, 0);
                         } else {
                             world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
                             world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
@@ -338,22 +389,21 @@ public class ReplayManager {
                     }
 
                     if (frameIndex % 40 == 0) {
-                        if (replayData.type != ReplayType.BOSS_KILL) {
+                        if (replayData.type != ReplayType.BOSS_KILL && replayData.type != ReplayType.PVP) {
                             targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_VEX_AMBIENT, 0.5f, 0.5f);
                         }
                     }
 
-                    if (frameIndex % 10 == 0) {
+                    if (frameIndex % 4 == 0) {
                         for (Player p : targetLoc.getWorld().getPlayers()) {
+                            if (replayData.type == ReplayType.BOSS_KILL || replayData.type == ReplayType.PVP) continue;
+
                             double distanceSquared = p.getLocation().distanceSquared(targetLoc);
-                            if (distanceSquared < 36) {
-                                if (replayData.type == ReplayType.BOSS_KILL) {
-                                } else {
-                                    p.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, 60, 0, false, false, false));
-                                    
-                                    if (frameIndex % 20 == 0) {
-                                        p.playSound(p.getLocation(), Sound.BLOCK_SCULK_SHRIEKER_SHRIEK, 0.1f, 0.5f);
-                                    }
+                            if (distanceSquared < 9) {
+                                p.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, 30, 0, false, false, false));
+                                
+                                if (frameIndex % 20 == 0) {
+                                    p.playSound(p.getLocation(), Sound.BLOCK_SCULK_SHRIEKER_SHRIEK, 0.1f, 0.5f);
                                 }
                             }
                         }
@@ -362,7 +412,7 @@ public class ReplayManager {
                     if (npc.getEntity() instanceof Player) {
                         Player npcPlayer = (Player) npc.getEntity();
                         
-                        if (replayData.type == ReplayType.BOSS_KILL) {
+                        if (replayData.type == ReplayType.BOSS_KILL || replayData.type == ReplayType.PVP) {
                             if (npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
                                 npcPlayer.removePotionEffect(PotionEffectType.INVISIBILITY);
                             }
@@ -378,6 +428,9 @@ public class ReplayManager {
 
                         if (frame.getAction() == PlayerAction.SWING_HAND) {
                             npcPlayer.swingMainHand();
+                            if (replayData.type == ReplayType.PVP) {
+                                targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_PLAYER_ATTACK_STRONG, 1.0f, 1.0f);
+                            }
                         }
                         
                         npcPlayer.setSneaking(frame.isSneaking());
@@ -385,8 +438,12 @@ public class ReplayManager {
 
                 } catch (Exception e) {
                     plugin.getLogger().warning("Replay stopped due to error: " + e.getMessage());
-                    cleanup();
                     this.cancel();
+                    try {
+                        cleanup();
+                    } catch (Exception ex) {
+                        plugin.getLogger().warning("Error during replay cleanup (after error): " + ex.getMessage());
+                    }
                     return;
                 }
 
@@ -394,31 +451,67 @@ public class ReplayManager {
             }
 
             private void cleanup() {
-                if (origin == null) activeReplays.remove(replayData.id);
+                onComplete.run();
                 if (ghostTeam != null) {
                     ghostTeam.removeEntry(ghostName);
                 }
                 if (npc.isSpawned()) {
                     Location loc = npc.getStoredLocation();
-                    loc.getWorld().spawnParticle(Particle.SOUL, loc.add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1);
-                    loc.getWorld().spawnParticle(Particle.SCULK_SOUL, loc, 15, 0.2, 0.5, 0.2, 0.05);
-                    loc.getWorld().playSound(loc, Sound.ENTITY_ZOMBIE_VILLAGER_CONVERTED, 1.0f, 0.6f);
-
-                    for (org.bukkit.entity.Entity entity : loc.getWorld().getNearbyEntities(loc, 5, 5, 5)) {
-                        if (entity instanceof Player) {
-                            org.bukkit.util.Vector direction = entity.getLocation().toVector().subtract(loc.toVector());
-                            if (direction.lengthSquared() == 0) {
-                                direction = new org.bukkit.util.Vector(0, 0.5, 0);
-                            } else {
-                                direction.normalize();
+                    
+                    try {
+                        if (replayData.type == ReplayType.PVP) {
+                            // Epic Anime Explosion
+                            safeSpawnParticle(loc.getWorld(), Particle.EXPLOSION_EMITTER, loc, 5, 0, 0, 0, 0);
+                            safeSpawnParticle(loc.getWorld(), Particle.FLASH, loc, 2, 0, 0, 0, 0);
+                            safeSpawnParticle(loc.getWorld(), Particle.SONIC_BOOM, loc, 1, 0, 0, 0, 0);
+                            
+                            loc.getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 2.0f, 0.5f);
+                            loc.getWorld().playSound(loc, Sound.ENTITY_WITHER_BREAK_BLOCK, 1.0f, 0.5f);
+                            
+                            for (org.bukkit.entity.Entity entity : loc.getWorld().getNearbyEntities(loc, 15, 15, 15)) {
+                                if (entity instanceof Player && !entity.getUniqueId().equals(npc.getUniqueId()) && !CitizensAPI.getNPCRegistry().isNPC(entity)) {
+                                    org.bukkit.util.Vector direction = entity.getLocation().toVector().subtract(loc.toVector());
+                                    if (direction.lengthSquared() == 0) {
+                                        direction = new org.bukkit.util.Vector(0, 1, 0);
+                                    } else {
+                                        direction.normalize();
+                                    }
+                                    entity.setVelocity(direction.multiply(2.5).setY(0.8));
+                                }
                             }
-                            entity.setVelocity(direction.multiply(1.5).setY(0.5));
+                        } else {
+                            safeSpawnParticle(loc.getWorld(), Particle.SOUL, loc.clone().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1);
+                            safeSpawnParticle(loc.getWorld(), Particle.SCULK_SOUL, loc, 15, 0.2, 0.5, 0.2, 0.05);
+                            
+                            loc.getWorld().playSound(loc, Sound.ENTITY_ZOMBIE_VILLAGER_CONVERTED, 1.0f, 0.6f);
+
+                            for (org.bukkit.entity.Entity entity : loc.getWorld().getNearbyEntities(loc, 5, 5, 5)) {
+                                if (entity instanceof Player && !entity.getUniqueId().equals(npc.getUniqueId()) && !CitizensAPI.getNPCRegistry().isNPC(entity)) {
+                                    org.bukkit.util.Vector direction = entity.getLocation().toVector().subtract(loc.toVector());
+                                    if (direction.lengthSquared() == 0) {
+                                        direction = new org.bukkit.util.Vector(0, 0.5, 0);
+                                    } else {
+                                        direction.normalize();
+                                    }
+                                    entity.setVelocity(direction.multiply(1.5).setY(0.5));
+                                }
+                            }
                         }
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Error playing cleanup effects: " + e.getMessage());
                     }
 
                     npc.destroy();
                 }
                 CitizensAPI.getNPCRegistry().deregister(npc);
+            }
+
+            private void safeSpawnParticle(World world, Particle particle, Location loc, int count, double x, double y, double z, double speed) {
+                try {
+                    world.spawnParticle(particle, loc, count, x, y, z, speed);
+                } catch (Exception ignored) {
+                    // Ignore particle errors to prevent console spam
+                }
             }
         }.runTaskTimer(plugin, 0L, 1L);
     }
