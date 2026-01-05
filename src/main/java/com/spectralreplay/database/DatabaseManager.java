@@ -6,6 +6,7 @@ import com.spectralreplay.model.ReplayFrame;
 import com.spectralreplay.model.ReplayType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
@@ -54,6 +55,17 @@ public class DatabaseManager {
                     statement.execute("ALTER TABLE death_replays ADD COLUMN type VARCHAR(20) DEFAULT 'DEATH'");
                 } catch (SQLException ignored) {
                 }
+
+                statement.execute("CREATE TABLE IF NOT EXISTS placed_replays (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                        "replay_id INTEGER NOT NULL," +
+                        "world VARCHAR(50) NOT NULL," +
+                        "x DOUBLE NOT NULL," +
+                        "y DOUBLE NOT NULL," +
+                        "z DOUBLE NOT NULL," +
+                        "yaw FLOAT NOT NULL," +
+                        "pitch FLOAT NOT NULL" +
+                        ")");
             }
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Could not initialize database", e);
@@ -133,6 +145,112 @@ public class DatabaseManager {
         } catch (SQLException e) {
             e.printStackTrace();
         }
+    }
+
+    public int savePlacedReplay(int replayId, Location location) {
+        String sql = "INSERT INTO placed_replays (replay_id, world, x, y, z, yaw, pitch) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setInt(1, replayId);
+            ps.setString(2, location.getWorld().getName());
+            ps.setDouble(3, location.getX());
+            ps.setDouble(4, location.getY());
+            ps.setDouble(5, location.getZ());
+            ps.setFloat(6, location.getYaw());
+            ps.setFloat(7, location.getPitch());
+            ps.executeUpdate();
+            
+            try (ResultSet rs = ps.getGeneratedKeys()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not save placed replay", e);
+        }
+        return -1;
+    }
+
+    public void deletePlacedReplay(int id) {
+        String sql = "DELETE FROM placed_replays WHERE id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not delete placed replay", e);
+        }
+    }
+
+    public List<PlacedReplay> getAllPlacedReplays() {
+        List<PlacedReplay> replays = new ArrayList<>();
+        String sql = "SELECT * FROM placed_replays";
+        try (Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                int id = rs.getInt("id");
+                int replayId = rs.getInt("replay_id");
+                String worldName = rs.getString("world");
+                World world = Bukkit.getWorld(worldName);
+                if (world == null) continue;
+                
+                Location loc = new Location(world, rs.getDouble("x"), rs.getDouble("y"), rs.getDouble("z"), rs.getFloat("yaw"), rs.getFloat("pitch"));
+                replays.add(new PlacedReplay(id, replayId, loc));
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not load placed replays", e);
+        }
+        return replays;
+    }
+
+    public ReplayData getReplayById(int id) {
+        String sql = "SELECT * FROM death_replays WHERE id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    String worldName = rs.getString("world");
+                    World world = Bukkit.getWorld(worldName);
+                    if (world == null) return null;
+                    
+                    Location loc = new Location(world, rs.getDouble("x"), rs.getDouble("y"), rs.getDouble("z"));
+                    byte[] data = rs.getBytes("replay_data");
+                    String typeStr = rs.getString("type");
+                    ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    
+                    return new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType);
+                }
+            }
+        } catch (SQLException | IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not load replay by id", e);
+        }
+        return null;
+    }
+
+    public List<ReplayData> getRecentReplays(int limit) {
+        List<ReplayData> replays = new ArrayList<>();
+        String sql = "SELECT * FROM death_replays ORDER BY timestamp DESC LIMIT ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int id = rs.getInt("id");
+                    UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    String worldName = rs.getString("world");
+                    World world = Bukkit.getWorld(worldName);
+                    if (world == null) continue;
+                    
+                    Location loc = new Location(world, rs.getDouble("x"), rs.getDouble("y"), rs.getDouble("z"));
+                    byte[] data = rs.getBytes("replay_data");
+                    String typeStr = rs.getString("type");
+                    ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, world), rType));
+                }
+            }
+        } catch (SQLException | IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not load recent replays", e);
+        }
+        return replays;
     }
 
     private static final int MAGIC_NUMBER = 0x53524550;
@@ -269,6 +387,18 @@ public class DatabaseManager {
             this.location = location;
             this.frames = frames;
             this.type = type;
+        }
+    }
+
+    public static class PlacedReplay {
+        public final int id;
+        public final int replayId;
+        public final Location location;
+
+        public PlacedReplay(int id, int replayId, Location location) {
+            this.id = id;
+            this.replayId = replayId;
+            this.location = location;
         }
     }
 }

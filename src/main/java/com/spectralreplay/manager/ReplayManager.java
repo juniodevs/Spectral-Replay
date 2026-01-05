@@ -33,6 +33,7 @@ public class ReplayManager {
     private final Map<UUID, Deque<ReplayFrame>> recordings = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerAction> currentActions = new ConcurrentHashMap<>();
     private final Set<Integer> activeReplays = ConcurrentHashMap.newKeySet();
+    private final Map<Integer, org.bukkit.scheduler.BukkitTask> placedReplayTasks = new ConcurrentHashMap<>();
     
     private static final int MAX_FRAMES = 200;
 
@@ -68,6 +69,38 @@ public class ReplayManager {
     public void startRandomReplayTask() {
         scheduleNextReplay(ReplayType.DEATH);
         scheduleNextReplay(ReplayType.BOSS_KILL);
+        loadPlacedReplays();
+    }
+
+    private void loadPlacedReplays() {
+        List<DatabaseManager.PlacedReplay> placedReplays = databaseManager.getAllPlacedReplays();
+        for (DatabaseManager.PlacedReplay placed : placedReplays) {
+            startPlacedReplayTask(placed);
+        }
+    }
+
+    public void startPlacedReplayTask(DatabaseManager.PlacedReplay placed) {
+        org.bukkit.scheduler.BukkitTask task = new BukkitRunnable() {
+            @Override
+            public void run() {
+                DatabaseManager.ReplayData data = databaseManager.getReplayById(placed.replayId);
+                if (data != null) {
+                    playGhostReplay(data, placed.location);
+                }
+            }
+        }.runTaskTimer(plugin, 100L, 600L); // Start after 5s, repeat every 30s (adjust as needed)
+        
+        placedReplayTasks.put(placed.id, task);
+    }
+
+    public boolean removePlacedReplay(int id) {
+        if (placedReplayTasks.containsKey(id)) {
+            placedReplayTasks.get(id).cancel();
+            placedReplayTasks.remove(id);
+            databaseManager.deletePlacedReplay(id);
+            return true;
+        }
+        return false;
     }
 
     private void scheduleNextReplay(ReplayType type) {
@@ -176,27 +209,36 @@ public class ReplayManager {
     }
 
     public void playGhostReplay(DatabaseManager.ReplayData replayData) {
-        if (activeReplays.contains(replayData.id)) return;
-        activeReplays.add(replayData.id);
+        playGhostReplay(replayData, null);
+    }
+
+    public void playGhostReplay(DatabaseManager.ReplayData replayData, Location origin) {
+        if (origin == null && activeReplays.contains(replayData.id)) return;
+        if (origin == null) activeReplays.add(replayData.id);
 
         List<ReplayFrame> frames = replayData.frames;
         if (frames.isEmpty()) {
-            activeReplays.remove(replayData.id);
+            if (origin == null) activeReplays.remove(replayData.id);
             return;
         }
 
-        Location startLoc = frames.get(0).getLocation();
+        Location startLoc = origin != null ? origin.clone() : frames.get(0).getLocation();
         if (!startLoc.getChunk().isLoaded()) {
-            activeReplays.remove(replayData.id);
+            if (origin == null) activeReplays.remove(replayData.id);
             return;
         }
+
+        // Calculate offset if origin is provided
+        org.bukkit.util.Vector offset = origin != null 
+            ? origin.toVector().subtract(frames.get(0).getLocation().toVector()) 
+            : new org.bukkit.util.Vector(0, 0, 0);
 
         String ghostName = "Ghost-" + UUID.randomUUID().toString().substring(0, 8);
         
         net.citizensnpcs.api.npc.NPCRegistry registry = CitizensAPI.getNPCRegistry();
         if (registry == null) {
             plugin.getLogger().severe("Citizens NPC Registry is null! Is Citizens enabled correctly?");
-            activeReplays.remove(replayData.id);
+            if (origin == null) activeReplays.remove(replayData.id);
             return;
         }
 
@@ -247,10 +289,11 @@ public class ReplayManager {
                 }
 
                 ReplayFrame frame = frames.get(frameIndex);
+                Location targetLoc = frame.getLocation().clone().add(offset);
                 
                 try {
-                    if (frame.getLocation().distanceSquared(npc.getStoredLocation()) > 0.0001) {
-                        npc.teleport(frame.getLocation(), org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
+                    if (targetLoc.distanceSquared(npc.getStoredLocation()) > 0.0001) {
+                        npc.teleport(targetLoc, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
                     }
                     
                     ItemStack currentItem = frame.getItemInHand();
@@ -278,8 +321,8 @@ public class ReplayManager {
                     }
 
                     if (frameIndex % 3 == 0) {
-                        World world = frame.getLocation().getWorld();
-                        Location particleLoc = frame.getLocation().add(0, 1, 0);
+                        World world = targetLoc.getWorld();
+                        Location particleLoc = targetLoc.clone().add(0, 1, 0);
                         
                         if (replayData.type == ReplayType.BOSS_KILL) {          
                             world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
@@ -296,13 +339,13 @@ public class ReplayManager {
 
                     if (frameIndex % 40 == 0) {
                         if (replayData.type != ReplayType.BOSS_KILL) {
-                            frame.getLocation().getWorld().playSound(frame.getLocation(), Sound.ENTITY_VEX_AMBIENT, 0.5f, 0.5f);
+                            targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_VEX_AMBIENT, 0.5f, 0.5f);
                         }
                     }
 
                     if (frameIndex % 10 == 0) {
-                        for (Player p : frame.getLocation().getWorld().getPlayers()) {
-                            double distanceSquared = p.getLocation().distanceSquared(frame.getLocation());
+                        for (Player p : targetLoc.getWorld().getPlayers()) {
+                            double distanceSquared = p.getLocation().distanceSquared(targetLoc);
                             if (distanceSquared < 36) {
                                 if (replayData.type == ReplayType.BOSS_KILL) {
                                 } else {
@@ -351,7 +394,7 @@ public class ReplayManager {
             }
 
             private void cleanup() {
-                activeReplays.remove(replayData.id);
+                if (origin == null) activeReplays.remove(replayData.id);
                 if (ghostTeam != null) {
                     ghostTeam.removeEntry(ghostName);
                 }
