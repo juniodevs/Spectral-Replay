@@ -598,9 +598,12 @@ public class ReplayManager {
         if (replayData.type == ReplayType.BOSS_KILL) {
             startLoc.getWorld().playSound(startLoc, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
         } else if (replayData.type == ReplayType.PVP) {
-            startLoc.getWorld().playSound(startLoc, Sound.EVENT_RAID_HORN, 1.0f, 0.8f);
+            startLoc.getWorld().playSound(startLoc, Sound.EVENT_RAID_HORN, 2.0f, 0.8f);
+            startLoc.getWorld().playSound(startLoc, Sound.ENTITY_WITHER_SPAWN, 0.5f, 0.5f);
         } else {
             startLoc.getWorld().playSound(startLoc, Sound.AMBIENT_SOUL_SAND_VALLEY_MOOD, 1.0f, 0.8f);
+            startLoc.getWorld().playSound(startLoc, Sound.ENTITY_ENDERMAN_SCREAM, 1.0f, 0.5f);
+            startLoc.getWorld().playSound(startLoc, Sound.ENTITY_GHAST_SCREAM, 0.5f, 0.1f);
         }
         
         npc.data().set("nameplate-visible", false);
@@ -677,6 +680,13 @@ public class ReplayManager {
                             } else if (replayData.type == ReplayType.PVP) {
                                 world.spawnParticle(Particle.CRIT, particleLoc, 3, 0.2, 0.5, 0.2, 0.1);
                                 world.spawnParticle(Particle.SWEEP_ATTACK, particleLoc, 1, 0.1, 0.1, 0.1, 0);
+                                
+                                if (frameIndex % 10 == 0) {
+                                    world.playSound(particleLoc, Sound.ITEM_SHIELD_BLOCK, 0.5f, 1.0f);
+                                }
+                                if (frameIndex % 15 == 0) {
+                                    world.playSound(particleLoc, Sound.ENTITY_PLAYER_HURT, 0.3f, 1.0f);
+                                }
                             } else {
                                 world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
                                 world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
