@@ -116,7 +116,12 @@ public class SpectralCommand implements CommandExecutor {
             }
         }
 
-        player.sendMessage(ChatColor.RED + "Usage: /spectral <play|list|place|list-placed|remove>");
+        player.sendMessage(ChatColor.RED + "Invalid usage. Try:");
+        player.sendMessage(ChatColor.WHITE + "/spectral play " + ChatColor.GRAY + "- Play a random nearby replay");
+        player.sendMessage(ChatColor.WHITE + "/spectral list " + ChatColor.GRAY + "- List recent replays");
+        player.sendMessage(ChatColor.WHITE + "/spectral place <id> " + ChatColor.GRAY + "- Place a replay permanently");
+        player.sendMessage(ChatColor.WHITE + "/spectral list-placed " + ChatColor.GRAY + "- List all placed replays");
+        player.sendMessage(ChatColor.WHITE + "/spectral remove <id> " + ChatColor.GRAY + "- Remove a placed replay");
         return true;
     }
 }
