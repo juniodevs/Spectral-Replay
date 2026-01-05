@@ -403,12 +403,11 @@ public class DatabaseManager {
             dos.writeInt(DATA_VERSION);
             dos.writeInt(frames.size());
             for (ReplayFrame frame : frames) {
-                Location loc = frame.getLocation();
-                dos.writeDouble(loc.getX());
-                dos.writeDouble(loc.getY());
-                dos.writeDouble(loc.getZ());
-                dos.writeFloat(loc.getYaw());
-                dos.writeFloat(loc.getPitch());
+                dos.writeDouble(frame.getX());
+                dos.writeDouble(frame.getY());
+                dos.writeDouble(frame.getZ());
+                dos.writeFloat(frame.getYaw());
+                dos.writeFloat(frame.getPitch());
                 dos.writeByte(frame.getAction().ordinal());
                 dos.writeBoolean(frame.isSneaking());
 

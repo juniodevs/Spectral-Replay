@@ -480,14 +480,23 @@ public class ReplayManager {
             return;
         }
 
-        Location startLoc = origin != null ? origin.clone() : frames.get(0).getLocation();
+        Location startLoc = origin != null ? origin.clone() : null;
+        if (startLoc == null) {
+            Location frameLoc = frames.get(0).getLocation();
+            if (frameLoc == null) {
+                onComplete.run();
+                return;
+            }
+            startLoc = frameLoc;
+        }
+
         if (!startLoc.getChunk().isLoaded()) {
             onComplete.run();
             return;
         }
 
         org.bukkit.util.Vector offset = origin != null 
-            ? origin.toVector().subtract(frames.get(0).getLocation().toVector()) 
+            ? origin.toVector().subtract(new org.bukkit.util.Vector(frames.get(0).getX(), frames.get(0).getY(), frames.get(0).getZ())) 
             : new org.bukkit.util.Vector(0, 0, 0);
 
         net.citizensnpcs.api.npc.NPCRegistry registry = CitizensAPI.getNPCRegistry();
@@ -545,7 +554,13 @@ public class ReplayManager {
                 }
 
                 ReplayFrame frame = frames.get(frameIndex);
-                Location targetLoc = frame.getLocation().clone().add(offset);
+                Location frameLoc = frame.getLocation();
+                if (frameLoc == null) {
+                    this.cancel();
+                    cleanup();
+                    return;
+                }
+                Location targetLoc = frameLoc.clone().add(offset);
                 
                 try {
                     if (targetLoc.distanceSquared(npc.getStoredLocation()) > 0.0001) {

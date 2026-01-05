@@ -29,8 +29,16 @@ public class ReplayFrame {
     }
 
     public Location getLocation() {
-        return new Location(Bukkit.getWorld(worldName), x, y, z, yaw, pitch);
+        org.bukkit.World world = Bukkit.getWorld(worldName);
+        if (world == null) return null;
+        return new Location(world, x, y, z, yaw, pitch);
     }
+
+    public double getX() { return x; }
+    public double getY() { return y; }
+    public double getZ() { return z; }
+    public float getYaw() { return yaw; }
+    public float getPitch() { return pitch; }
 
     public PlayerAction getAction() {
         return action;
