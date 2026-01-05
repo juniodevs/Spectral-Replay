@@ -36,7 +36,7 @@ public class SpectralCommand implements CommandExecutor {
 
         if (args.length > 0 && args[0].equalsIgnoreCase("play")) {
             double radius = 20.0;
-            List<DatabaseManager.ReplayData> replays = databaseManager.getNearbyReplays(player.getLocation(), radius);
+            List<DatabaseManager.ReplayData> replays = databaseManager.getNearbyReplays(player.getLocation(), radius, null);
             
             if (replays.isEmpty()) {
                 player.sendMessage(ChatColor.YELLOW + "No replays found within " + radius + " blocks.");

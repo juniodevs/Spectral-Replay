@@ -9,6 +9,11 @@ min-delay: 12000
 # 24000 ticks = 20 minutes
 max-delay: 24000
 
+# Boss Replay Settings
+boss-replay:
+  min-delay: 6000 # 5 minutes
+  max-delay: 12000 # 10 minutes
+
 # Defines if armor should be displayed on the ghost
 # true = displays the armor the player was wearing
 # false = ghost without armor

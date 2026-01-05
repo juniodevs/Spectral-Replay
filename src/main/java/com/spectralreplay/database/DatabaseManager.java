@@ -3,6 +3,7 @@ package com.spectralreplay.database;
 import com.spectralreplay.SpectralReplay;
 import com.spectralreplay.model.PlayerAction;
 import com.spectralreplay.model.ReplayFrame;
+import com.spectralreplay.model.ReplayType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.inventory.ItemStack;
@@ -45,16 +46,22 @@ public class DatabaseManager {
                         "y DOUBLE NOT NULL," +
                         "z DOUBLE NOT NULL," +
                         "timestamp LONG NOT NULL," +
-                        "replay_data BLOB NOT NULL" +
+                        "replay_data BLOB NOT NULL," +
+                        "type VARCHAR(20) DEFAULT 'DEATH'" +
                         ")");
+                
+                try {
+                    statement.execute("ALTER TABLE death_replays ADD COLUMN type VARCHAR(20) DEFAULT 'DEATH'");
+                } catch (SQLException ignored) {
+                }
             }
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Could not initialize database", e);
         }
     }
 
-    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames) {
-        String sql = "INSERT INTO death_replays (uuid, world, x, y, z, timestamp, replay_data) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type) {
+        String sql = "INSERT INTO death_replays (uuid, world, x, y, z, timestamp, replay_data, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, playerUUID.toString());
@@ -64,6 +71,7 @@ public class DatabaseManager {
             ps.setDouble(5, deathLocation.getZ());
             ps.setLong(6, System.currentTimeMillis());
             ps.setBytes(7, serializeFrames(frames));
+            ps.setString(8, type.name());
             
             ps.executeUpdate();
         } catch (SQLException | IOException e) {
@@ -71,9 +79,14 @@ public class DatabaseManager {
         }
     }
 
-    public List<ReplayData> getNearbyReplays(Location location, double radius) {
+    public List<ReplayData> getNearbyReplays(Location location, double radius, ReplayType type) {
         List<ReplayData> replays = new ArrayList<>();
-        String sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ?";
+        String sql;
+        if (type != null) {
+            sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND type = ?";
+        } else {
+            sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ?";
+        }
         
         double xMin = location.getX() - radius;
         double xMax = location.getX() + radius;
@@ -86,6 +99,10 @@ public class DatabaseManager {
             ps.setDouble(3, xMax);
             ps.setDouble(4, zMin);
             ps.setDouble(5, zMax);
+            
+            if (type != null) {
+                ps.setString(6, type.name());
+            }
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -96,8 +113,10 @@ public class DatabaseManager {
                     UUID uuid = UUID.fromString(rs.getString("uuid"));
                     Location loc = new Location(location.getWorld(), rs.getDouble("x"), y, rs.getDouble("z"));
                     byte[] data = rs.getBytes("replay_data");
+                    String typeStr = rs.getString("type");
+                    ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
                     
-                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, loc.getWorld())));
+                    replays.add(new ReplayData(id, uuid, loc, deserializeFrames(data, loc.getWorld()), rType));
                 }
             }
         } catch (SQLException | IOException e) {
@@ -242,12 +261,14 @@ public class DatabaseManager {
         public final UUID uuid;
         public final Location location;
         public final List<ReplayFrame> frames;
+        public final ReplayType type;
 
-        public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames) {
+        public ReplayData(int id, UUID uuid, Location location, List<ReplayFrame> frames, ReplayType type) {
             this.id = id;
             this.uuid = uuid;
             this.location = location;
             this.frames = frames;
+            this.type = type;
         }
     }
 }

@@ -4,6 +4,7 @@ import com.spectralreplay.SpectralReplay;
 import com.spectralreplay.manager.ReplayManager;
 import com.spectralreplay.model.PlayerAction;
 import com.spectralreplay.model.ReplayFrame;
+import com.spectralreplay.model.ReplayType;
 import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -55,7 +56,7 @@ public class PlayerListener implements Listener {
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
-        replayManager.saveDeathReplay(player);
+        replayManager.saveDeathReplay(player, ReplayType.DEATH);
     }
 
     @EventHandler
@@ -64,7 +65,7 @@ public class PlayerListener implements Listener {
         if (type == EntityType.WITHER || type == EntityType.ENDER_DRAGON || type == EntityType.WARDEN || type == EntityType.ELDER_GUARDIAN) {
             Player killer = event.getEntity().getKiller();
             if (killer != null) {
-                replayManager.saveDeathReplay(killer);
+                replayManager.saveDeathReplay(killer, ReplayType.BOSS_KILL);
             }
         }
     }

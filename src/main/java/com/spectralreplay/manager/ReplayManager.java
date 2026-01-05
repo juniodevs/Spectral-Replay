@@ -4,6 +4,7 @@ import com.spectralreplay.SpectralReplay;
 import com.spectralreplay.database.DatabaseManager;
 import com.spectralreplay.model.PlayerAction;
 import com.spectralreplay.model.ReplayFrame;
+import com.spectralreplay.model.ReplayType;
 import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.api.trait.trait.Equipment;
@@ -65,27 +66,36 @@ public class ReplayManager {
     }
 
     public void startRandomReplayTask() {
-        scheduleNextReplay();
+        scheduleNextReplay(ReplayType.DEATH);
+        scheduleNextReplay(ReplayType.BOSS_KILL);
     }
 
-    private void scheduleNextReplay() {
-        long minDelay = plugin.getConfig().getLong("min-delay", 200L);
-        long maxDelay = plugin.getConfig().getLong("max-delay", 600L);
+    private void scheduleNextReplay(ReplayType type) {
+        long minDelay, maxDelay;
+        
+        if (type == ReplayType.BOSS_KILL) {
+            minDelay = plugin.getConfig().getLong("boss-replay.min-delay", 6000L);
+            maxDelay = plugin.getConfig().getLong("boss-replay.max-delay", 12000L);
+        } else {
+            minDelay = plugin.getConfig().getLong("min-delay", 12000L);
+            maxDelay = plugin.getConfig().getLong("max-delay", 24000L);
+        }
+        
         long delay = ThreadLocalRandom.current().nextLong(minDelay, maxDelay + 1);
 
         new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    attemptReplay();
+                    attemptReplay(type);
                 } finally {
-                    scheduleNextReplay();
+                    scheduleNextReplay(type);
                 }
             }
         }.runTaskLater(plugin, delay);
     }
 
-    private void attemptReplay() {
+    private void attemptReplay(ReplayType type) {
         if (!activeReplays.isEmpty()) return;
 
         List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
@@ -97,7 +107,7 @@ public class ReplayManager {
 
             if (ThreadLocalRandom.current().nextDouble() > 0.3) continue;
 
-            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplays(player.getLocation(), 20.0);
+            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplays(player.getLocation(), 20.0, type);
             if (nearbyReplays.isEmpty()) continue;
 
             List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
@@ -147,13 +157,13 @@ public class ReplayManager {
         return new ArrayList<>(buffer);
     }
 
-    public void saveDeathReplay(Player player) {
+    public void saveDeathReplay(Player player, ReplayType type) {
         List<ReplayFrame> frames = getSnapshot(player);
         if (!frames.isEmpty()) {
             new BukkitRunnable() {
                 @Override
                 public void run() {
-                    databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames);
+                    databaseManager.saveReplay(player.getUniqueId(), player.getLocation(), frames, type);
                 }
             }.runTaskAsynchronously(plugin);
         }
@@ -182,7 +192,15 @@ public class ReplayManager {
         }
 
         String ghostName = "Ghost-" + UUID.randomUUID().toString().substring(0, 8);
-        NPC npc = CitizensAPI.getNPCRegistry().createNPC(EntityType.PLAYER, ghostName);
+        
+        net.citizensnpcs.api.npc.NPCRegistry registry = CitizensAPI.getNPCRegistry();
+        if (registry == null) {
+            plugin.getLogger().severe("Citizens NPC Registry is null! Is Citizens enabled correctly?");
+            activeReplays.remove(replayData.id);
+            return;
+        }
+
+        NPC npc = registry.createNPC(EntityType.PLAYER, ghostName);
         
         try {
             String playerName = Bukkit.getOfflinePlayer(replayData.uuid).getName();
@@ -195,7 +213,11 @@ public class ReplayManager {
         npc.spawn(startLoc);
         npc.setProtected(true);
         
-        startLoc.getWorld().playSound(startLoc, Sound.AMBIENT_SOUL_SAND_VALLEY_MOOD, 1.0f, 0.8f);
+        if (replayData.type == ReplayType.BOSS_KILL) {
+            startLoc.getWorld().playSound(startLoc, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+        } else {
+            startLoc.getWorld().playSound(startLoc, Sound.AMBIENT_SOUL_SAND_VALLEY_MOOD, 1.0f, 0.8f);
+        }
         
         npc.data().set("nameplate-visible", false);
 
@@ -241,7 +263,7 @@ public class ReplayManager {
                         lastEquippedItem = currentItem;
                     }
 
-                    if (plugin.getConfig().getBoolean("armor", true)) {
+                    if (plugin.getConfig().getBoolean("armor", true) || replayData.type == ReplayType.BOSS_KILL) {
                         ItemStack[] currentArmor = frame.getArmor();
                         if (!Arrays.equals(currentArmor, lastEquippedArmor)) {
                             if (currentArmor != null && currentArmor.length == 4) {
@@ -259,19 +281,37 @@ public class ReplayManager {
                         World world = frame.getLocation().getWorld();
                         Location particleLoc = frame.getLocation().add(0, 1, 0);
                         
-                        world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
-                        world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
+                        if (replayData.type == ReplayType.BOSS_KILL) {          
+                            world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
+                            world.spawnParticle(Particle.FIREWORK, particleLoc, 3, 0.2, 0.5, 0.2, 0.05);
+                            world.spawnParticle(Particle.END_ROD, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
+                        } else {
+                            world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
+                            world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
+                            
+                            Particle.DustOptions dustOptions = new Particle.DustOptions(Color.fromRGB(100, 0, 0), 1.0F);
+                            world.spawnParticle(Particle.DUST, particleLoc, 5, 0.2, 0.5, 0.2, 0, dustOptions);
+                        }
                     }
 
                     if (frameIndex % 40 == 0) {
-                        frame.getLocation().getWorld().playSound(frame.getLocation(), Sound.ENTITY_VEX_AMBIENT, 0.5f, 0.5f);
+                        if (replayData.type != ReplayType.BOSS_KILL) {
+                            frame.getLocation().getWorld().playSound(frame.getLocation(), Sound.ENTITY_VEX_AMBIENT, 0.5f, 0.5f);
+                        }
                     }
 
                     if (frameIndex % 10 == 0) {
                         for (Player p : frame.getLocation().getWorld().getPlayers()) {
-                            if (p.getLocation().distanceSquared(frame.getLocation()) < 16) {
-                                p.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, 40, 0, false, false, false));
-                                p.playSound(p.getLocation(), Sound.BLOCK_SCULK_SHRIEKER_SHRIEK, 0.3f, 0.5f);
+                            double distanceSquared = p.getLocation().distanceSquared(frame.getLocation());
+                            if (distanceSquared < 36) {
+                                if (replayData.type == ReplayType.BOSS_KILL) {
+                                } else {
+                                    p.addPotionEffect(new PotionEffect(PotionEffectType.DARKNESS, 60, 0, false, false, false));
+                                    
+                                    if (frameIndex % 20 == 0) {
+                                        p.playSound(p.getLocation(), Sound.BLOCK_SCULK_SHRIEKER_SHRIEK, 0.1f, 0.5f);
+                                    }
+                                }
                             }
                         }
                     }
@@ -279,8 +319,18 @@ public class ReplayManager {
                     if (npc.getEntity() instanceof Player) {
                         Player npcPlayer = (Player) npc.getEntity();
                         
-                        if (!npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
-                            npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 1, false, false));
+                        if (replayData.type == ReplayType.BOSS_KILL) {
+                            if (npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
+                                npcPlayer.removePotionEffect(PotionEffectType.INVISIBILITY);
+                            }
+                            
+                            if (!npcPlayer.hasPotionEffect(PotionEffectType.GLOWING)) {
+                                npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 60, 0, false, false, false));
+                            }
+                        } else {
+                            if (!npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
+                                npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 1, false, false));
+                            }
                         }
 
                         if (frame.getAction() == PlayerAction.SWING_HAND) {
@@ -310,6 +360,18 @@ public class ReplayManager {
                     loc.getWorld().spawnParticle(Particle.SOUL, loc.add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1);
                     loc.getWorld().spawnParticle(Particle.SCULK_SOUL, loc, 15, 0.2, 0.5, 0.2, 0.05);
                     loc.getWorld().playSound(loc, Sound.ENTITY_ZOMBIE_VILLAGER_CONVERTED, 1.0f, 0.6f);
+
+                    for (org.bukkit.entity.Entity entity : loc.getWorld().getNearbyEntities(loc, 5, 5, 5)) {
+                        if (entity instanceof Player) {
+                            org.bukkit.util.Vector direction = entity.getLocation().toVector().subtract(loc.toVector());
+                            if (direction.lengthSquared() == 0) {
+                                direction = new org.bukkit.util.Vector(0, 0.5, 0);
+                            } else {
+                                direction.normalize();
+                            }
+                            entity.setVelocity(direction.multiply(1.5).setY(0.5));
+                        }
+                    }
 
                     npc.destroy();
                 }
