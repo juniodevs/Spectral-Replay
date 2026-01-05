@@ -293,6 +293,33 @@ public class DatabaseManager {
     private static final int MAGIC_NUMBER = 0x53524550;
     private static final int DATA_VERSION = 2;
 
+    public boolean deleteReplay(int id) {
+        // First, get the replay to check if it's a PVP replay
+        ReplayData replay = getReplayById(id);
+        if (replay == null) return false;
+
+        String sql = "DELETE FROM death_replays WHERE id = ?";
+        
+        // If it's PVP, we want to delete the partner replay too (same timestamp)
+        if (replay.type == ReplayType.PVP) {
+            sql = "DELETE FROM death_replays WHERE timestamp = ?";
+        }
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            if (replay.type == ReplayType.PVP) {
+                ps.setLong(1, replay.timestamp);
+            } else {
+                ps.setInt(1, id);
+            }
+            
+            int rows = ps.executeUpdate();
+            return rows > 0;
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not delete replay", e);
+            return false;
+        }
+    }
+
     private byte[] serializeFrames(List<ReplayFrame> frames) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              DataOutputStream dos = new DataOutputStream(baos)) {

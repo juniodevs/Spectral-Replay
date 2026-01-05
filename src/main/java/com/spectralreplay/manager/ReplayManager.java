@@ -87,6 +87,10 @@ public class ReplayManager {
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     if (player.getGameMode() == GameMode.SPECTATOR) continue;
 
+                    // Check if it is night (13000 - 23000)
+                    long time = player.getWorld().getTime();
+                    if (time < 13000 || time > 23000) continue;
+
                     List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplays(player.getLocation(), radius, null);
                     
                     for (DatabaseManager.ReplayData replay : nearbyReplays) {

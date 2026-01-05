@@ -55,7 +55,10 @@ public class SpectralCommand implements CommandExecutor {
                 List<DatabaseManager.ReplayData> recent = databaseManager.getRecentReplays(10);
                 player.sendMessage(ChatColor.GOLD + "--- Recent Replays ---");
                 for (DatabaseManager.ReplayData data : recent) {
-                    player.sendMessage(ChatColor.YELLOW + "ID: " + data.id + " | Type: " + data.type + " | Loc: " + 
+                    String playerName = org.bukkit.Bukkit.getOfflinePlayer(data.uuid).getName();
+                    if (playerName == null) playerName = "Unknown";
+                    
+                    player.sendMessage(ChatColor.YELLOW + "ID: " + data.id + " | Player: " + playerName + " | Type: " + data.type + " | Loc: " + 
                         String.format("%.0f, %.0f, %.0f", data.location.getX(), data.location.getY(), data.location.getZ()));
                 }
                 return true;
@@ -114,6 +117,24 @@ public class SpectralCommand implements CommandExecutor {
                 }
                 return true;
             }
+
+            if (args[0].equalsIgnoreCase("delete")) {
+                if (args.length < 2) {
+                    player.sendMessage(ChatColor.RED + "Usage: /spectral delete <replay_id>");
+                    return true;
+                }
+                try {
+                    int id = Integer.parseInt(args[1]);
+                    if (databaseManager.deleteReplay(id)) {
+                        player.sendMessage(ChatColor.GREEN + "Replay deleted from database.");
+                    } else {
+                        player.sendMessage(ChatColor.RED + "Replay not found or could not be deleted.");
+                    }
+                } catch (NumberFormatException e) {
+                    player.sendMessage(ChatColor.RED + "Invalid ID.");
+                }
+                return true;
+            }
         }
 
         player.sendMessage(ChatColor.RED + "Invalid usage. Try:");
@@ -122,6 +143,7 @@ public class SpectralCommand implements CommandExecutor {
         player.sendMessage(ChatColor.WHITE + "/spectral place <id> " + ChatColor.GRAY + "- Place a replay permanently");
         player.sendMessage(ChatColor.WHITE + "/spectral list-placed " + ChatColor.GRAY + "- List all placed replays");
         player.sendMessage(ChatColor.WHITE + "/spectral remove <id> " + ChatColor.GRAY + "- Remove a placed replay");
+        player.sendMessage(ChatColor.WHITE + "/spectral delete <id> " + ChatColor.GRAY + "- Delete a replay from database");
         return true;
     }
 }

@@ -8,5 +8,5 @@ depend: [Citizens]
 commands:
   spectral:
     description: Admin commands for Spectral Replay
-    usage: /spectral <play|list|place|list-placed|remove>
+    usage: /spectral <play|list|place|list-placed|remove|delete>
     permission: spectralreplay.admin
