@@ -38,6 +38,9 @@ public class SpectralReplay extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (replayManager != null) {
+            replayManager.shutdown();
+        }
         if (databaseManager != null) {
             databaseManager.close();
         }

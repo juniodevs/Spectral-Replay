@@ -22,6 +22,7 @@ import org.bukkit.scoreboard.Team;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class ReplayManager {
@@ -35,6 +36,7 @@ public class ReplayManager {
     private final Set<Integer> activeReplays = ConcurrentHashMap.newKeySet();
     private final Map<Integer, org.bukkit.scheduler.BukkitTask> placedReplayTasks = new ConcurrentHashMap<>();
     private final Map<UUID, Map<Integer, Long>> proximityCooldowns = new ConcurrentHashMap<>();
+    private final Queue<NPC> npcPool = new ConcurrentLinkedQueue<>();
     
     private static final int MAX_FRAMES = 200;
 
@@ -300,6 +302,32 @@ public class ReplayManager {
         }
     }
 
+    private NPC getGhostNPC() {
+        NPC npc = npcPool.poll();
+        if (npc != null && CitizensAPI.getNPCRegistry().getById(npc.getId()) != null) {
+            return npc;
+        }
+        String ghostName = "Ghost-" + UUID.randomUUID().toString().substring(0, 8);
+        return CitizensAPI.getNPCRegistry().createNPC(EntityType.PLAYER, ghostName);
+    }
+
+    private void releaseGhostNPC(NPC npc) {
+        if (npc != null && CitizensAPI.getNPCRegistry().getById(npc.getId()) != null) {
+            npc.despawn();
+            npcPool.offer(npc);
+        }
+    }
+
+    public void shutdown() {
+        while (!npcPool.isEmpty()) {
+            NPC npc = npcPool.poll();
+            if (npc != null) {
+                npc.destroy();
+                CitizensAPI.getNPCRegistry().deregister(npc);
+            }
+        }
+    }
+
     private void startPlayback(DatabaseManager.ReplayData replayData, Location origin, Runnable onComplete) {
         List<ReplayFrame> frames = replayData.frames;
         if (frames.isEmpty()) {
@@ -317,8 +345,6 @@ public class ReplayManager {
             ? origin.toVector().subtract(frames.get(0).getLocation().toVector()) 
             : new org.bukkit.util.Vector(0, 0, 0);
 
-        String ghostName = "Ghost-" + UUID.randomUUID().toString().substring(0, 8);
-        
         net.citizensnpcs.api.npc.NPCRegistry registry = CitizensAPI.getNPCRegistry();
         if (registry == null) {
             plugin.getLogger().severe("Citizens NPC Registry is null! Is Citizens enabled correctly?");
@@ -326,7 +352,8 @@ public class ReplayManager {
             return;
         }
 
-        NPC npc = registry.createNPC(EntityType.PLAYER, ghostName);
+        NPC npc = getGhostNPC();
+        String ghostName = npc.getName();
         
         try {
             String playerName = Bukkit.getOfflinePlayer(replayData.uuid).getName();
@@ -543,9 +570,10 @@ public class ReplayManager {
                         plugin.getLogger().warning("Error playing cleanup effects: " + e.getMessage());
                     }
 
-                    npc.destroy();
+                    releaseGhostNPC(npc);
+                } else {
+                    releaseGhostNPC(npc);
                 }
-                CitizensAPI.getNPCRegistry().deregister(npc);
             }
 
             private void safeSpawnParticle(World world, Particle particle, Location loc, int count, double x, double y, double z, double speed) {
