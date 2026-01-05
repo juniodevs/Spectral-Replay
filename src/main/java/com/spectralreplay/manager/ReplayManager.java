@@ -34,6 +34,7 @@ public class ReplayManager {
     private final Set<Integer> activeReplays = ConcurrentHashMap.newKeySet();
     private final Map<Integer, org.bukkit.scheduler.BukkitTask> placedReplayTasks = new ConcurrentHashMap<>();
     private final Map<Integer, Long> proximityCooldowns = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> respawnProtections = new ConcurrentHashMap<>();
     private final Queue<NPC> npcPool = new ConcurrentLinkedQueue<>();
     private final Set<NPC> activeNPCs = ConcurrentHashMap.newKeySet();
     
@@ -79,6 +80,11 @@ public class ReplayManager {
         return team;
     }
 
+    public void addRespawnProtection(Player player) {
+        long duration = plugin.getConfig().getLong("respawn-protection-duration", 10) * 1000;
+        respawnProtections.put(player.getUniqueId(), System.currentTimeMillis() + duration);
+    }
+
     public void startRecording() {
         new BukkitRunnable() {
             @Override
@@ -119,6 +125,14 @@ public class ReplayManager {
                     for (Player player : Bukkit.getOnlinePlayers()) {
                         try {
                             if (player.getGameMode() == GameMode.SPECTATOR) continue;
+
+                            if (respawnProtections.containsKey(player.getUniqueId())) {
+                                if (System.currentTimeMillis() < respawnProtections.get(player.getUniqueId())) {
+                                    continue;
+                                } else {
+                                    respawnProtections.remove(player.getUniqueId());
+                                }
+                            }
 
                             final long time = player.getWorld().getTime();
                             final Location playerLoc = player.getLocation();
