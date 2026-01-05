@@ -1,0 +1,15 @@
+# Spectral Replay Configuration
+
+# Minimum time between replay attempts (in ticks)
+# 20 ticks = 1 second
+# 12000 ticks = 10 minutes
+min-delay: 12000
+
+# Maximum time between replay attempts (in ticks)
+# 24000 ticks = 20 minutes
+max-delay: 24000
+
+# Defines if armor should be displayed on the ghost
+# true = displays the armor the player was wearing
+# false = ghost without armor
+armor: false

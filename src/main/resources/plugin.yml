@@ -1,0 +1,12 @@
+name: SpectralReplay
+version: 1.0
+main: com.spectralreplay.SpectralReplay
+api-version: 1.20
+author: juniodevs
+description: Replays the last 10 seconds of a player's life upon death.
+depend: [Citizens]
+commands:
+  spectral:
+    description: Admin commands for Spectral Replay
+    usage: /spectral play
+    permission: spectralreplay.admin
