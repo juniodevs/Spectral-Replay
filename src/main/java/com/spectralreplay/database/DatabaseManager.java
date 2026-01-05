@@ -125,6 +125,73 @@ public class DatabaseManager {
         return replays;
     }
 
+    public List<ReplayData> getNearbyReplayMeta(Location location, double radius, ReplayType type) {
+        List<ReplayData> replays = new ArrayList<>();
+        String sql;
+        if (type != null) {
+            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND type = ?";
+        } else {
+            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ?";
+        }
+        
+        double xMin = location.getX() - radius;
+        double xMax = location.getX() + radius;
+        double zMin = location.getZ() - radius;
+        double zMax = location.getZ() + radius;
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, location.getWorld().getName());
+            ps.setDouble(2, xMin);
+            ps.setDouble(3, xMax);
+            ps.setDouble(4, zMin);
+            ps.setDouble(5, zMax);
+            
+            if (type != null) {
+                ps.setString(6, type.name());
+            }
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    double y = rs.getDouble("y");
+                    if (Math.abs(y - location.getY()) > 10) continue;
+
+                    int id = rs.getInt("id");
+                    UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    Location loc = new Location(location.getWorld(), rs.getDouble("x"), y, rs.getDouble("z"));
+                    
+                    String typeStr = rs.getString("type");
+                    ReplayType rType = ReplayType.valueOf(typeStr != null ? typeStr : "DEATH");
+                    
+                    long timestamp = rs.getLong("timestamp");
+                    replays.add(new ReplayData(id, uuid, loc, null, rType, timestamp));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not load replay metadata", e);
+        }
+        return replays;
+    }
+
+    public List<ReplayFrame> getReplayFrames(int id) {
+        String sql = "SELECT replay_data, world FROM death_replays WHERE id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    byte[] data = rs.getBytes("replay_data");
+                    String worldName = rs.getString("world");
+                    World world = Bukkit.getWorld(worldName);
+                    if (world != null) {
+                        return deserializeFrames(data, world);
+                    }
+                }
+            }
+        } catch (SQLException | IOException e) {
+            plugin.getLogger().log(Level.SEVERE, "Could not load replay frames", e);
+        }
+        return new ArrayList<>();
+    }
+
     public List<ReplayData> getNearbyReplays(Location location, double radius, ReplayType type) {
         List<ReplayData> replays = new ArrayList<>();
         String sql;

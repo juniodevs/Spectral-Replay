@@ -113,7 +113,7 @@ public class ReplayManager {
                     long time = player.getWorld().getTime();
                     if (time < 13000 || time > 23000) continue;
 
-                    List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplays(player.getLocation(), radius, null);
+                    List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(player.getLocation(), radius, null);
                     
                     for (DatabaseManager.ReplayData replay : nearbyReplays) {
                         if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
@@ -204,7 +204,7 @@ public class ReplayManager {
 
             if (ThreadLocalRandom.current().nextDouble() > 0.3) continue;
 
-            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplays(player.getLocation(), 20.0, type);
+            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(player.getLocation(), 20.0, type);
             if (nearbyReplays.isEmpty()) continue;
 
             List<DatabaseManager.ReplayData> availableReplays = new ArrayList<>();
@@ -286,6 +286,28 @@ public class ReplayManager {
     }
 
     public void playGhostReplay(DatabaseManager.ReplayData replayData, Location origin) {
+        if (replayData.frames == null) {
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    List<ReplayFrame> frames = databaseManager.getReplayFrames(replayData.id);
+                    if (frames.isEmpty()) return;
+
+                    DatabaseManager.ReplayData fullData = new DatabaseManager.ReplayData(
+                            replayData.id, replayData.uuid, replayData.location, frames, replayData.type, replayData.timestamp
+                    );
+
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            playGhostReplay(fullData, origin);
+                        }
+                    }.runTask(plugin);
+                }
+            }.runTaskAsynchronously(plugin);
+            return;
+        }
+
         if (origin == null && activeReplays.contains(replayData.id)) return;
 
         DatabaseManager.ReplayData partnerReplay = null;
