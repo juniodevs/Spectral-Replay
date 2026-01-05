@@ -117,10 +117,7 @@ public class ReplayManager {
                         try {
                             if (player.getGameMode() == GameMode.SPECTATOR) continue;
 
-                            // Check if it is night (13000 - 23000)
-                            long time = player.getWorld().getTime();
-                            if (time < 13000 || time > 23000) continue;
-
+                            final long time = player.getWorld().getTime();
                             final Location playerLoc = player.getLocation();
                             final UUID playerUUID = player.getUniqueId();
 
@@ -132,6 +129,10 @@ public class ReplayManager {
                                         
                                         for (DatabaseManager.ReplayData replay : nearbyReplays) {
                                             if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
+                                            
+                                            // DEATH replays only at night (13000 - 23000)
+                                            if (replay.type == ReplayType.DEATH && (time < 13000 || time > 23000)) continue;
+                                            
                                             if (activeReplays.contains(replay.id)) continue;
 
                                             Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new ConcurrentHashMap<>());
