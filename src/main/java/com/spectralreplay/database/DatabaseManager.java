@@ -28,17 +28,25 @@ public class DatabaseManager {
         initialize();
     }
 
+    private Connection getConnection() throws SQLException {
+        if (connection == null || connection.isClosed()) {
+            try {
+                File dataFolder = new File(plugin.getDataFolder(), "database.db");
+                if (!dataFolder.getParentFile().exists()) {
+                    dataFolder.getParentFile().mkdirs();
+                }
+                Class.forName("org.sqlite.JDBC");
+                connection = DriverManager.getConnection("jdbc:sqlite:" + dataFolder.getAbsolutePath());
+            } catch (ClassNotFoundException e) {
+                throw new SQLException("SQLite JDBC driver not found", e);
+            }
+        }
+        return connection;
+    }
+
     private void initialize() {
         try {
-            File dataFolder = new File(plugin.getDataFolder(), "database.db");
-            if (!dataFolder.getParentFile().exists()) {
-                dataFolder.getParentFile().mkdirs();
-            }
-
-            Class.forName("org.sqlite.JDBC");
-            connection = DriverManager.getConnection("jdbc:sqlite:" + dataFolder.getAbsolutePath());
-
-            try (Statement statement = connection.createStatement()) {
+            try (Statement statement = getConnection().createStatement()) {
                 statement.execute("CREATE TABLE IF NOT EXISTS death_replays (" +
                         "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                         "uuid VARCHAR(36) NOT NULL," +
@@ -75,7 +83,7 @@ public class DatabaseManager {
     public void saveReplay(UUID playerUUID, Location deathLocation, List<ReplayFrame> frames, ReplayType type, long timestamp) {
         String sql = "INSERT INTO death_replays (uuid, world, x, y, z, timestamp, replay_data, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setString(1, playerUUID.toString());
             ps.setString(2, deathLocation.getWorld().getName());
             ps.setDouble(3, deathLocation.getX());
@@ -99,7 +107,7 @@ public class DatabaseManager {
         List<ReplayData> replays = new ArrayList<>();
         String sql = "SELECT * FROM death_replays WHERE timestamp = ? AND uuid != ?";
         
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setLong(1, timestamp);
             ps.setString(2, excludeUUID.toString());
             
@@ -139,7 +147,7 @@ public class DatabaseManager {
         double zMin = location.getZ() - radius;
         double zMax = location.getZ() + radius;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setString(1, location.getWorld().getName());
             ps.setDouble(2, xMin);
             ps.setDouble(3, xMax);
@@ -174,7 +182,7 @@ public class DatabaseManager {
 
     public List<ReplayFrame> getReplayFrames(int id) {
         String sql = "SELECT replay_data, world FROM death_replays WHERE id = ?";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setInt(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -206,7 +214,7 @@ public class DatabaseManager {
         double zMin = location.getZ() - radius;
         double zMax = location.getZ() + radius;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setString(1, location.getWorld().getName());
             ps.setDouble(2, xMin);
             ps.setDouble(3, xMax);
@@ -251,7 +259,7 @@ public class DatabaseManager {
 
     public int savePlacedReplay(int replayId, Location location) {
         String sql = "INSERT INTO placed_replays (replay_id, world, x, y, z, yaw, pitch) VALUES (?, ?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, replayId);
             ps.setString(2, location.getWorld().getName());
             ps.setDouble(3, location.getX());
@@ -274,7 +282,7 @@ public class DatabaseManager {
 
     public void deletePlacedReplay(int id) {
         String sql = "DELETE FROM placed_replays WHERE id = ?";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setInt(1, id);
             ps.executeUpdate();
         } catch (SQLException e) {
@@ -285,7 +293,7 @@ public class DatabaseManager {
     public List<PlacedReplay> getAllPlacedReplays() {
         List<PlacedReplay> replays = new ArrayList<>();
         String sql = "SELECT * FROM placed_replays";
-        try (Statement stmt = connection.createStatement();
+        try (Statement stmt = getConnection().createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
                 int id = rs.getInt("id");
@@ -305,7 +313,7 @@ public class DatabaseManager {
 
     public ReplayData getReplayById(int id) {
         String sql = "SELECT * FROM death_replays WHERE id = ?";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setInt(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -332,7 +340,7 @@ public class DatabaseManager {
     public List<ReplayData> getRecentReplays(int limit) {
         List<ReplayData> replays = new ArrayList<>();
         String sql = "SELECT * FROM death_replays ORDER BY timestamp DESC LIMIT ?";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setInt(1, limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -372,7 +380,7 @@ public class DatabaseManager {
             sql = "DELETE FROM death_replays WHERE timestamp = ?";
         }
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+        try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             if (replay.type == ReplayType.PVP) {
                 ps.setLong(1, replay.timestamp);
             } else {
