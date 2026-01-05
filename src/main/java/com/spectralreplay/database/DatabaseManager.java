@@ -28,7 +28,7 @@ public class DatabaseManager {
         initialize();
     }
 
-    private Connection getConnection() throws SQLException {
+    private synchronized Connection getConnection() throws SQLException {
         if (connection == null || connection.isClosed()) {
             try {
                 File dataFolder = new File(plugin.getDataFolder(), "database.db");
@@ -60,7 +60,13 @@ public class DatabaseManager {
                         ")");
                 
                 try {
-                    statement.execute("ALTER TABLE death_replays ADD COLUMN type VARCHAR(20) DEFAULT 'DEATH'");
+                    // Check if column exists before adding
+                    DatabaseMetaData md = connection.getMetaData();
+                    ResultSet rs = md.getColumns(null, null, "death_replays", "type");
+                    if (!rs.next()) {
+                        statement.execute("ALTER TABLE death_replays ADD COLUMN type VARCHAR(20) DEFAULT 'DEATH'");
+                    }
+                    rs.close();
                 } catch (SQLException ignored) {
                 }
 
@@ -137,15 +143,17 @@ public class DatabaseManager {
         List<ReplayData> replays = new ArrayList<>();
         String sql;
         if (type != null) {
-            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND type = ?";
+            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ? AND type = ?";
         } else {
-            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ?";
+            sql = "SELECT id, uuid, world, x, y, z, type, timestamp FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ?";
         }
         
         double xMin = location.getX() - radius;
         double xMax = location.getX() + radius;
         double zMin = location.getZ() - radius;
         double zMax = location.getZ() + radius;
+        double yMin = location.getY() - radius;
+        double yMax = location.getY() + radius;
 
         try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setString(1, location.getWorld().getName());
@@ -153,18 +161,18 @@ public class DatabaseManager {
             ps.setDouble(3, xMax);
             ps.setDouble(4, zMin);
             ps.setDouble(5, zMax);
+            ps.setDouble(6, yMin);
+            ps.setDouble(7, yMax);
             
             if (type != null) {
-                ps.setString(6, type.name());
+                ps.setString(8, type.name());
             }
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    double y = rs.getDouble("y");
-                    if (Math.abs(y - location.getY()) > 10) continue;
-
                     int id = rs.getInt("id");
                     UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    double y = rs.getDouble("y");
                     Location loc = new Location(location.getWorld(), rs.getDouble("x"), y, rs.getDouble("z"));
                     
                     String typeStr = rs.getString("type");
@@ -204,15 +212,17 @@ public class DatabaseManager {
         List<ReplayData> replays = new ArrayList<>();
         String sql;
         if (type != null) {
-            sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND type = ?";
+            sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ? AND type = ?";
         } else {
-            sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ?";
+            sql = "SELECT * FROM death_replays WHERE world = ? AND x BETWEEN ? AND ? AND z BETWEEN ? AND ? AND y BETWEEN ? AND ?";
         }
         
         double xMin = location.getX() - radius;
         double xMax = location.getX() + radius;
         double zMin = location.getZ() - radius;
         double zMax = location.getZ() + radius;
+        double yMin = location.getY() - radius;
+        double yMax = location.getY() + radius;
 
         try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
             ps.setString(1, location.getWorld().getName());
@@ -220,18 +230,18 @@ public class DatabaseManager {
             ps.setDouble(3, xMax);
             ps.setDouble(4, zMin);
             ps.setDouble(5, zMax);
+            ps.setDouble(6, yMin);
+            ps.setDouble(7, yMax);
             
             if (type != null) {
-                ps.setString(6, type.name());
+                ps.setString(8, type.name());
             }
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    double y = rs.getDouble("y");
-                    if (Math.abs(y - location.getY()) > 10) continue;
-
                     int id = rs.getInt("id");
                     UUID uuid = UUID.fromString(rs.getString("uuid"));
+                    double y = rs.getDouble("y");
                     Location loc = new Location(location.getWorld(), rs.getDouble("x"), y, rs.getDouble("z"));
                     byte[] data = rs.getBytes("replay_data");
                     String typeStr = rs.getString("type");

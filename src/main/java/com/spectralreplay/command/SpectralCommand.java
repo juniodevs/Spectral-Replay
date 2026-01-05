@@ -2,6 +2,8 @@ package com.spectralreplay.command;
 
 import com.spectralreplay.database.DatabaseManager;
 import com.spectralreplay.manager.ReplayManager;
+import com.spectralreplay.SpectralReplay;
+import org.bukkit.Location;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -13,10 +15,12 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class SpectralCommand implements CommandExecutor {
 
+    private final SpectralReplay plugin;
     private final ReplayManager replayManager;
     private final DatabaseManager databaseManager;
 
-    public SpectralCommand(ReplayManager replayManager, DatabaseManager databaseManager) {
+    public SpectralCommand(SpectralReplay plugin, ReplayManager replayManager, DatabaseManager databaseManager) {
+        this.plugin = plugin;
         this.replayManager = replayManager;
         this.databaseManager = databaseManager;
     }
@@ -37,30 +41,47 @@ public class SpectralCommand implements CommandExecutor {
         if (args.length > 0) {
             if (args[0].equalsIgnoreCase("play")) {
                 double radius = 20.0;
-                List<DatabaseManager.ReplayData> replays = databaseManager.getNearbyReplays(player.getLocation(), radius, null);
+                Location loc = player.getLocation();
                 
-                if (replays.isEmpty()) {
-                    player.sendMessage(ChatColor.YELLOW + "No replays found within " + radius + " blocks.");
-                    return true;
-                }
+                new org.bukkit.scheduler.BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        List<DatabaseManager.ReplayData> replays = databaseManager.getNearbyReplays(loc, radius, null);
+                        
+                        new org.bukkit.scheduler.BukkitRunnable() {
+                            @Override
+                            public void run() {
+                                if (replays.isEmpty()) {
+                                    player.sendMessage(ChatColor.YELLOW + "No replays found within " + radius + " blocks.");
+                                    return;
+                                }
 
-                DatabaseManager.ReplayData replay = replays.get(ThreadLocalRandom.current().nextInt(replays.size()));
-                replayManager.playGhostReplay(replay);
-                
-                player.sendMessage(ChatColor.GREEN + "Playing a random ghost replay from " + replays.size() + " found nearby.");
+                                DatabaseManager.ReplayData replay = replays.get(ThreadLocalRandom.current().nextInt(replays.size()));
+                                replayManager.playGhostReplay(replay);
+                                
+                                player.sendMessage(ChatColor.GREEN + "Playing a random ghost replay from " + replays.size() + " found nearby.");
+                            }
+                        }.runTask(plugin);
+                    }
+                }.runTaskAsynchronously(plugin);
                 return true;
             }
             
             if (args[0].equalsIgnoreCase("list")) {
-                List<DatabaseManager.ReplayData> recent = databaseManager.getRecentReplays(10);
-                player.sendMessage(ChatColor.GOLD + "--- Recent Replays ---");
-                for (DatabaseManager.ReplayData data : recent) {
-                    String playerName = org.bukkit.Bukkit.getOfflinePlayer(data.uuid).getName();
-                    if (playerName == null) playerName = "Unknown";
-                    
-                    player.sendMessage(ChatColor.YELLOW + "ID: " + data.id + " | Player: " + playerName + " | Type: " + data.type + " | Loc: " + 
-                        String.format("%.0f, %.0f, %.0f", data.location.getX(), data.location.getY(), data.location.getZ()));
-                }
+                new org.bukkit.scheduler.BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        List<DatabaseManager.ReplayData> recent = databaseManager.getRecentReplays(10);
+                        player.sendMessage(ChatColor.GOLD + "--- Recent Replays ---");
+                        for (DatabaseManager.ReplayData data : recent) {
+                            String playerName = org.bukkit.Bukkit.getOfflinePlayer(data.uuid).getName();
+                            if (playerName == null) playerName = "Unknown";
+                            
+                            player.sendMessage(ChatColor.YELLOW + "ID: " + data.id + " | Player: " + playerName + " | Type: " + data.type + " | Loc: " + 
+                                String.format("%.0f, %.0f, %.0f", data.location.getX(), data.location.getY(), data.location.getZ()));
+                        }
+                    }
+                }.runTaskAsynchronously(plugin);
                 return true;
             }
 
@@ -71,19 +92,32 @@ public class SpectralCommand implements CommandExecutor {
                 }
                 try {
                     int id = Integer.parseInt(args[1]);
-                    DatabaseManager.ReplayData data = databaseManager.getReplayById(id);
-                    if (data == null) {
-                        player.sendMessage(ChatColor.RED + "Replay not found.");
-                        return true;
-                    }
+                    Location loc = player.getLocation();
                     
-                    int placedId = databaseManager.savePlacedReplay(id, player.getLocation());
-                    if (placedId != -1) {
-                        replayManager.startPlacedReplayTask(new DatabaseManager.PlacedReplay(placedId, id, player.getLocation()));
-                        player.sendMessage(ChatColor.GREEN + "Replay placed at your location! Placed ID: " + placedId);
-                    } else {
-                        player.sendMessage(ChatColor.RED + "Failed to save placed replay.");
-                    }
+                    new org.bukkit.scheduler.BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            DatabaseManager.ReplayData data = databaseManager.getReplayById(id);
+                            if (data == null) {
+                                player.sendMessage(ChatColor.RED + "Replay not found.");
+                                return;
+                            }
+                            
+                            int placedId = databaseManager.savePlacedReplay(id, loc);
+                            
+                            new org.bukkit.scheduler.BukkitRunnable() {
+                                @Override
+                                public void run() {
+                                    if (placedId != -1) {
+                                        replayManager.startPlacedReplayTask(new DatabaseManager.PlacedReplay(placedId, id, loc));
+                                        player.sendMessage(ChatColor.GREEN + "Replay placed at your location! Placed ID: " + placedId);
+                                    } else {
+                                        player.sendMessage(ChatColor.RED + "Failed to save placed replay.");
+                                    }
+                                }
+                            }.runTask(plugin);
+                        }
+                    }.runTaskAsynchronously(plugin);
                 } catch (NumberFormatException e) {
                     player.sendMessage(ChatColor.RED + "Invalid ID.");
                 }
@@ -91,12 +125,17 @@ public class SpectralCommand implements CommandExecutor {
             }
             
             if (args[0].equalsIgnoreCase("list-placed")) {
-                List<DatabaseManager.PlacedReplay> placed = databaseManager.getAllPlacedReplays();
-                player.sendMessage(ChatColor.GOLD + "--- Placed Replays ---");
-                for (DatabaseManager.PlacedReplay p : placed) {
-                    player.sendMessage(ChatColor.YELLOW + "ID: " + p.id + " | ReplayID: " + p.replayId + " | Loc: " + 
-                        String.format("%.0f, %.0f, %.0f", p.location.getX(), p.location.getY(), p.location.getZ()));
-                }
+                new org.bukkit.scheduler.BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        List<DatabaseManager.PlacedReplay> placed = databaseManager.getAllPlacedReplays();
+                        player.sendMessage(ChatColor.GOLD + "--- Placed Replays ---");
+                        for (DatabaseManager.PlacedReplay p : placed) {
+                            player.sendMessage(ChatColor.YELLOW + "ID: " + p.id + " | ReplayID: " + p.replayId + " | Loc: " + 
+                                String.format("%.0f, %.0f, %.0f", p.location.getX(), p.location.getY(), p.location.getZ()));
+                        }
+                    }
+                }.runTaskAsynchronously(plugin);
                 return true;
             }
 

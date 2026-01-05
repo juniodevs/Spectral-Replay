@@ -31,7 +31,7 @@ public class SpectralReplay extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new PlayerListener(this, replayManager), this);
 
-        getCommand("spectral").setExecutor(new SpectralCommand(replayManager, databaseManager));
+        getCommand("spectral").setExecutor(new SpectralCommand(this, replayManager, databaseManager));
 
         getLogger().info("Spectral Replay has been enabled!");
     }

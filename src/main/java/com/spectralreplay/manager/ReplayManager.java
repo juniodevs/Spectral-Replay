@@ -115,24 +115,33 @@ public class ReplayManager {
                     long time = player.getWorld().getTime();
                     if (time < 13000 || time > 23000) continue;
 
-                    List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(player.getLocation(), radius, null);
-                    
-                    for (DatabaseManager.ReplayData replay : nearbyReplays) {
-                        if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
-                        if (activeReplays.contains(replay.id)) continue;
+                    final Location playerLoc = player.getLocation();
+                    final UUID playerUUID = player.getUniqueId();
 
-                        Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(player.getUniqueId(), k -> new HashMap<>());
-                        long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
-
-                        if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
-                            // Play the replay
-                            playGhostReplay(replay);
-                            playerCooldowns.put(replay.id, System.currentTimeMillis());
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            List<DatabaseManager.ReplayData> nearbyReplays = databaseManager.getNearbyReplayMeta(playerLoc, radius, null);
                             
-                            // Only trigger one replay per check to avoid chaos
-                            break; 
+                            for (DatabaseManager.ReplayData replay : nearbyReplays) {
+                                if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
+                                if (activeReplays.contains(replay.id)) continue;
+
+                                Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new HashMap<>());
+                                long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
+
+                                if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
+                                    // Play the replay
+                                    // playGhostReplay handles async fetching if frames are null, which they are here.
+                                    playGhostReplay(replay);
+                                    playerCooldowns.put(replay.id, System.currentTimeMillis());
+                                    
+                                    // Only trigger one replay per check to avoid chaos
+                                    break; 
+                                }
+                            }
                         }
-                    }
+                    }.runTaskAsynchronously(plugin);
                 }
             }
         }.runTaskTimer(plugin, 100L, 20L); // Check every second (20 ticks), start after 5s
@@ -271,7 +280,7 @@ public class ReplayManager {
         
         ItemStack savedItem = null;
         if (currentItem != null && currentItem.getType() != Material.AIR) {
-            if (lastFrame != null && lastFrame.getItemInHand() != null && lastFrame.getItemInHand().equals(currentItem)) {
+            if (lastFrame != null && isSimilar(lastFrame.getItemInHand(), currentItem)) {
                 savedItem = lastFrame.getItemInHand();
             } else {
                 savedItem = currentItem.clone();
@@ -286,7 +295,7 @@ public class ReplayManager {
                 for (int i = 0; i < currentArmor.length; i++) {
                     ItemStack c = currentArmor[i];
                     ItemStack l = lastFrame.getArmor()[i];
-                    if ((c == null && l != null) || (c != null && l == null) || (c != null && !c.equals(l))) {
+                    if ((c == null && l != null) || (c != null && l == null) || (c != null && !isSimilar(c, l))) {
                         sameArmor = false;
                         break;
                     }
@@ -312,6 +321,14 @@ public class ReplayManager {
         }
 
         currentActions.put(uuid, PlayerAction.NONE);
+    }
+
+    private boolean isSimilar(ItemStack item1, ItemStack item2) {
+        if (item1 == null || item2 == null) return false;
+        if (item1.getType() != item2.getType()) return false;
+        if (item1.getAmount() != item2.getAmount()) return false;
+        if (item1.hasItemMeta() != item2.hasItemMeta()) return false;
+        return item1.isSimilar(item2);
     }
 
     public void setPlayerAction(Player player, PlayerAction action) {
