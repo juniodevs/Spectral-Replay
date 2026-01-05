@@ -127,7 +127,7 @@ public class ReplayManager {
                                 if (replay.type != ReplayType.DEATH && replay.type != ReplayType.PVP) continue;
                                 if (activeReplays.contains(replay.id)) continue;
 
-                                Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new HashMap<>());
+                                Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new ConcurrentHashMap<>());
                                 long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
 
                                 if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
@@ -610,21 +610,23 @@ public class ReplayManager {
 
                     if (frameIndex % 3 == 0) {
                         World world = targetLoc.getWorld();
-                        Location particleLoc = targetLoc.clone().add(0, 1, 0);
-                        
-                        if (replayData.type == ReplayType.BOSS_KILL) {          
-                            world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
-                            world.spawnParticle(Particle.FIREWORK, particleLoc, 3, 0.2, 0.5, 0.2, 0.05);
-                            world.spawnParticle(Particle.END_ROD, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
-                        } else if (replayData.type == ReplayType.PVP) {
-                            world.spawnParticle(Particle.CRIT, particleLoc, 3, 0.2, 0.5, 0.2, 0.1);
-                            world.spawnParticle(Particle.SWEEP_ATTACK, particleLoc, 1, 0.1, 0.1, 0.1, 0);
-                        } else {
-                            world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
-                            world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
+                        if (world != null) {
+                            Location particleLoc = targetLoc.clone().add(0, 1, 0);
                             
-                            Particle.DustOptions dustOptions = new Particle.DustOptions(Color.fromRGB(100, 0, 0), 1.0F);
-                            world.spawnParticle(Particle.DUST, particleLoc, 5, 0.2, 0.5, 0.2, 0, dustOptions);
+                            if (replayData.type == ReplayType.BOSS_KILL) {          
+                                world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
+                                world.spawnParticle(Particle.FIREWORK, particleLoc, 3, 0.2, 0.5, 0.2, 0.05);
+                                world.spawnParticle(Particle.END_ROD, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
+                            } else if (replayData.type == ReplayType.PVP) {
+                                world.spawnParticle(Particle.CRIT, particleLoc, 3, 0.2, 0.5, 0.2, 0.1);
+                                world.spawnParticle(Particle.SWEEP_ATTACK, particleLoc, 1, 0.1, 0.1, 0.1, 0);
+                            } else {
+                                world.spawnParticle(Particle.SOUL_FIRE_FLAME, particleLoc, 3, 0.1, 0.1, 0.1, 0.02);
+                                world.spawnParticle(Particle.ASH, particleLoc, 9, 0.2, 0.5, 0.2, 0);
+                                
+                                Particle.DustOptions dustOptions = new Particle.DustOptions(Color.fromRGB(100, 0, 0), 1.0F);
+                                world.spawnParticle(Particle.DUST, particleLoc, 5, 0.2, 0.5, 0.2, 0, dustOptions);
+                            }
                         }
                     }
 
