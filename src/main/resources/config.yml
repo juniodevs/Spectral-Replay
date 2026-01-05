@@ -22,7 +22,8 @@ boss-replay:
 # Defines if armor should be displayed on the ghost
 # true = displays the armor the player was wearing
 # false = ghost without armor
-armor: false
+armor-pvp: true
+armor-death: false
 
 # Proximity Replay (Jumpscare) Settings
 proximity-replay:

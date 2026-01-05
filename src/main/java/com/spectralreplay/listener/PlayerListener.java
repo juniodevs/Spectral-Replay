@@ -88,6 +88,7 @@ public class PlayerListener implements Listener {
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent event) {
+        /* Feature disabled for now
         try {
             EntityType type = event.getEntityType();
             if (type == EntityType.WITHER || type == EntityType.ENDER_DRAGON || type == EntityType.WARDEN || type == EntityType.ELDER_GUARDIAN) {
@@ -99,6 +100,7 @@ public class PlayerListener implements Listener {
         } catch (Exception e) {
             plugin.getLogger().warning("Error handling entity death event: " + e.getMessage());
         }
+        */
     }
 
     @EventHandler

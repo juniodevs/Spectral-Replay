@@ -96,7 +96,7 @@ public class ReplayManager {
 
     public void startRandomReplayTask() {
         scheduleNextReplay(ReplayType.DEATH);
-        scheduleNextReplay(ReplayType.BOSS_KILL);
+        // scheduleNextReplay(ReplayType.BOSS_KILL); // Disabled
         loadPlacedReplays();
         startProximityCheckTask();
     }
@@ -225,6 +225,7 @@ public class ReplayManager {
     private void scheduleNextReplay(ReplayType type) {
         long minDelay, maxDelay;
         
+        /*
         if (type == ReplayType.BOSS_KILL) {
             minDelay = plugin.getConfig().getLong("boss-replay.min-delay", 6000L);
             maxDelay = plugin.getConfig().getLong("boss-replay.max-delay", 12000L);
@@ -232,6 +233,9 @@ public class ReplayManager {
             minDelay = plugin.getConfig().getLong("min-delay", 12000L);
             maxDelay = plugin.getConfig().getLong("max-delay", 24000L);
         }
+        */
+        minDelay = plugin.getConfig().getLong("min-delay", 12000L);
+        maxDelay = plugin.getConfig().getLong("max-delay", 24000L);
         
         long delay = ThreadLocalRandom.current().nextLong(minDelay, maxDelay + 1);
 
@@ -609,9 +613,7 @@ public class ReplayManager {
         npc.spawn(startLoc);
         npc.setProtected(true);
         
-        if (replayData.type == ReplayType.BOSS_KILL) {
-            startLoc.getWorld().playSound(startLoc, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
-        } else if (replayData.type == ReplayType.PVP) {
+        if (replayData.type == ReplayType.PVP) {
             startLoc.getWorld().playSound(startLoc, Sound.EVENT_RAID_HORN, 2.0f, 0.8f);
             startLoc.getWorld().playSound(startLoc, Sound.ENTITY_WITHER_SPAWN, 0.5f, 0.5f);
         } else {
@@ -668,7 +670,14 @@ public class ReplayManager {
                         lastEquippedItem = currentItem;
                     }
 
-                    if (plugin.getConfig().getBoolean("armor", true) || replayData.type == ReplayType.BOSS_KILL || replayData.type == ReplayType.PVP) {
+                    boolean showArmor = false;
+                    if (replayData.type == ReplayType.PVP) {
+                        showArmor = plugin.getConfig().getBoolean("armor-pvp", true);
+                    } else {
+                        showArmor = plugin.getConfig().getBoolean("armor-death", false);
+                    }
+
+                    if (showArmor) {
                         ItemStack[] currentArmor = frame.getArmor();
                         if (!Arrays.equals(currentArmor, lastEquippedArmor)) {
                             if (currentArmor != null && currentArmor.length == 4) {
@@ -687,11 +696,7 @@ public class ReplayManager {
                         if (world != null) {
                             Location particleLoc = targetLoc.clone().add(0, 1, 0);
                             
-                            if (replayData.type == ReplayType.BOSS_KILL) {          
-                                world.spawnParticle(Particle.TOTEM_OF_UNDYING, particleLoc, 5, 0.2, 0.5, 0.2, 0.1);
-                                world.spawnParticle(Particle.FIREWORK, particleLoc, 3, 0.2, 0.5, 0.2, 0.05);
-                                world.spawnParticle(Particle.END_ROD, particleLoc, 1, 0.1, 0.1, 0.1, 0.01);
-                            } else if (replayData.type == ReplayType.PVP) {                                
+                            if (replayData.type == ReplayType.PVP) {                                
 
                                 world.spawnParticle(Particle.SCULK_SOUL, particleLoc, 2, 0.3, 0.5, 0.3, 0.02);
                                 
@@ -724,7 +729,7 @@ public class ReplayManager {
 
                     if (frameIndex % 4 == 0) {
                         for (Player p : targetLoc.getWorld().getPlayers()) {
-                            if (replayData.type == ReplayType.BOSS_KILL || replayData.type == ReplayType.PVP) continue;
+                            if (replayData.type == ReplayType.PVP) continue;
 
                             double distanceSquared = p.getLocation().distanceSquared(targetLoc);
                             if (distanceSquared < 9) {
@@ -740,15 +745,7 @@ public class ReplayManager {
                     if (npc.getEntity() instanceof Player) {
                         Player npcPlayer = (Player) npc.getEntity();
                         
-                        if (replayData.type == ReplayType.BOSS_KILL) {
-                            if (npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
-                                npcPlayer.removePotionEffect(PotionEffectType.INVISIBILITY);
-                            }
-                            
-                            if (!npcPlayer.hasPotionEffect(PotionEffectType.GLOWING)) {
-                                npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 60, 0, false, false, false));
-                            }
-                        } else if (replayData.type == ReplayType.PVP) {
+                        if (replayData.type == ReplayType.PVP) {
                             if (!npcPlayer.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
                                 npcPlayer.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 1, false, false));
                             }
