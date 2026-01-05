@@ -9,6 +9,10 @@ min-delay: 12000
 # 24000 ticks = 20 minutes
 max-delay: 24000
 
+# Maximum number of concurrent replays allowed
+# If this limit is reached, no new replays will start until some finish
+max-concurrent-replays: 1
+
 # Boss Replay Settings
 boss-replay:
   min-delay: 6000 # 5 minutes

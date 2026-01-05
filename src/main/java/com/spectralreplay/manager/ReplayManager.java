@@ -37,6 +37,7 @@ public class ReplayManager {
     private final Map<Integer, org.bukkit.scheduler.BukkitTask> placedReplayTasks = new ConcurrentHashMap<>();
     private final Map<UUID, Map<Integer, Long>> proximityCooldowns = new ConcurrentHashMap<>();
     private final Queue<NPC> npcPool = new ConcurrentLinkedQueue<>();
+    private final Set<NPC> activeNPCs = ConcurrentHashMap.newKeySet();
     
     private static final int MAX_FRAMES = 200;
 
@@ -44,6 +45,25 @@ public class ReplayManager {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
         setupGhostTeam();
+        cleanupLeftoverNPCs();
+    }
+
+    private void cleanupLeftoverNPCs() {
+        net.citizensnpcs.api.npc.NPCRegistry registry = CitizensAPI.getNPCRegistry();
+        if (registry == null) return;
+
+        List<NPC> toRemove = new ArrayList<>();
+        for (NPC npc : registry) {
+            if (npc.getName().startsWith("Ghost-")) {
+                toRemove.add(npc);
+            }
+        }
+
+        for (NPC npc : toRemove) {
+            npc.destroy();
+            registry.deregister(npc);
+            plugin.getLogger().info("Removed leftover ghost NPC: " + npc.getName());
+        }
     }
 
     private void setupGhostTeam() {
@@ -284,6 +304,14 @@ public class ReplayManager {
         }
 
         if (origin == null) {
+            int maxConcurrent = plugin.getConfig().getInt("max-concurrent-replays", 5);
+            int needed = 1;
+            if (partnerReplay != null) needed = 2;
+            
+            if (activeReplays.size() + needed > maxConcurrent) {
+                return;
+            }
+
             activeReplays.add(replayData.id);
             if (partnerReplay != null) {
                 activeReplays.add(partnerReplay.id);
@@ -326,6 +354,14 @@ public class ReplayManager {
                 CitizensAPI.getNPCRegistry().deregister(npc);
             }
         }
+
+        for (NPC npc : activeNPCs) {
+            if (npc != null) {
+                npc.destroy();
+                CitizensAPI.getNPCRegistry().deregister(npc);
+            }
+        }
+        activeNPCs.clear();
     }
 
     private void startPlayback(DatabaseManager.ReplayData replayData, Location origin, Runnable onComplete) {
@@ -353,6 +389,7 @@ public class ReplayManager {
         }
 
         NPC npc = getGhostNPC();
+        activeNPCs.add(npc);
         String ghostName = npc.getName();
         
         try {
@@ -570,8 +607,10 @@ public class ReplayManager {
                         plugin.getLogger().warning("Error playing cleanup effects: " + e.getMessage());
                     }
 
+                    activeNPCs.remove(npc);
                     releaseGhostNPC(npc);
                 } else {
+                    activeNPCs.remove(npc);
                     releaseGhostNPC(npc);
                 }
             }
@@ -580,7 +619,6 @@ public class ReplayManager {
                 try {
                     world.spawnParticle(particle, loc, count, x, y, z, speed);
                 } catch (Exception ignored) {
-                    // Ignore particle errors to prevent console spam
                 }
             }
         }.runTaskTimer(plugin, 0L, 1L);
