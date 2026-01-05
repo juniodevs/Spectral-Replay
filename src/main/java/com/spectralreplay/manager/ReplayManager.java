@@ -105,7 +105,6 @@ public class ReplayManager {
 
     public void startRandomReplayTask() {
         scheduleNextReplay(ReplayType.DEATH);
-        // scheduleNextReplay(ReplayType.BOSS_KILL); // Disabled
         loadPlacedReplays();
         startProximityCheckTask();
     }
@@ -262,15 +261,6 @@ public class ReplayManager {
     private void scheduleNextReplay(ReplayType type) {
         long minDelay, maxDelay;
         
-        /*
-        if (type == ReplayType.BOSS_KILL) {
-            minDelay = plugin.getConfig().getLong("boss-replay.min-delay", 6000L);
-            maxDelay = plugin.getConfig().getLong("boss-replay.max-delay", 12000L);
-        } else {
-            minDelay = plugin.getConfig().getLong("min-delay", 12000L);
-            maxDelay = plugin.getConfig().getLong("max-delay", 24000L);
-        }
-        */
         minDelay = plugin.getConfig().getLong("min-delay", 1200L);
         maxDelay = plugin.getConfig().getLong("max-delay", 3600L);
         
@@ -778,7 +768,7 @@ public class ReplayManager {
                     }
 
                     if (frameIndex % 40 == 0) {
-                        if (replayData.type != ReplayType.BOSS_KILL && replayData.type != ReplayType.PVP) {
+                        if (replayData.type != ReplayType.PVP) {
                             targetLoc.getWorld().playSound(targetLoc, Sound.ENTITY_VEX_AMBIENT, 0.5f, 0.5f);
                         }
                     }

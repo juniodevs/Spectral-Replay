@@ -19,14 +19,12 @@ import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerAnimationType;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
-import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.LeatherArmorMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.List;
 
-import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 
 public class PlayerListener implements Listener {
@@ -59,10 +57,6 @@ public class PlayerListener implements Listener {
     }
 
     @EventHandler
-    public void onPlayerToggleSneak(PlayerToggleSneakEvent event) {
-    }
-
-    @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         try {
             Player player = event.getEntity();
@@ -82,23 +76,6 @@ public class PlayerListener implements Listener {
         } catch (Exception e) {
             plugin.getLogger().warning("Error handling player death event: " + e.getMessage());
         }
-    }
-
-    @EventHandler
-    public void onEntityDeath(EntityDeathEvent event) {
-        /* Feature disabled for now
-        try {
-            EntityType type = event.getEntityType();
-            if (type == EntityType.WITHER || type == EntityType.ENDER_DRAGON || type == EntityType.WARDEN || type == EntityType.ELDER_GUARDIAN) {
-                Player killer = event.getEntity().getKiller();
-                if (killer != null) {
-                    replayManager.saveDeathReplay(killer, ReplayType.BOSS_KILL);
-                }
-            }
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error handling entity death event: " + e.getMessage());
-        }
-        */
     }
 
     @EventHandler
