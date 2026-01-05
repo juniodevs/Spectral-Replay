@@ -202,6 +202,12 @@ public class SpectralCommand implements CommandExecutor {
                 }
                 return true;
             }
+
+            if (args[0].equalsIgnoreCase("reset-cooldowns")) {
+                replayManager.resetCooldowns();
+                player.sendMessage(ChatColor.GREEN + "All replay cooldowns have been reset.");
+                return true;
+            }
         }
 
         player.sendMessage(ChatColor.RED + "Invalid usage. Try:");
@@ -211,6 +217,7 @@ public class SpectralCommand implements CommandExecutor {
         player.sendMessage(ChatColor.WHITE + "/spectral list-placed " + ChatColor.GRAY + "- List all placed replays");
         player.sendMessage(ChatColor.WHITE + "/spectral remove <id> " + ChatColor.GRAY + "- Remove a placed replay");
         player.sendMessage(ChatColor.WHITE + "/spectral delete <id> " + ChatColor.GRAY + "- Delete a replay from database");
+        player.sendMessage(ChatColor.WHITE + "/spectral reset-cooldowns " + ChatColor.GRAY + "- Reset all replay cooldowns");
         return true;
         
         } catch (Exception e) {

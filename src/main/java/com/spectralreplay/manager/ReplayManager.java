@@ -33,7 +33,7 @@ public class ReplayManager {
     private final Map<UUID, PlayerAction> currentActions = new ConcurrentHashMap<>();
     private final Set<Integer> activeReplays = ConcurrentHashMap.newKeySet();
     private final Map<Integer, org.bukkit.scheduler.BukkitTask> placedReplayTasks = new ConcurrentHashMap<>();
-    private final Map<UUID, Map<Integer, Long>> proximityCooldowns = new ConcurrentHashMap<>();
+    private final Map<Integer, Long> proximityCooldowns = new ConcurrentHashMap<>();
     private final Queue<NPC> npcPool = new ConcurrentLinkedQueue<>();
     private final Set<NPC> activeNPCs = ConcurrentHashMap.newKeySet();
     
@@ -102,6 +102,10 @@ public class ReplayManager {
         startProximityCheckTask();
     }
 
+    public void resetCooldowns() {
+        proximityCooldowns.clear();
+    }
+
     private void startProximityCheckTask() {
         new BukkitRunnable() {
             @Override
@@ -135,14 +139,22 @@ public class ReplayManager {
                                             
                                             if (activeReplays.contains(replay.id)) continue;
 
-                                            Map<Integer, Long> playerCooldowns = proximityCooldowns.computeIfAbsent(playerUUID, k -> new ConcurrentHashMap<>());
-                                            long lastPlayed = playerCooldowns.getOrDefault(replay.id, 0L);
+                                            long lastPlayed = proximityCooldowns.getOrDefault(replay.id, 0L);
 
                                             if (System.currentTimeMillis() - lastPlayed > cooldownMillis) {
-                                                // Play the replay
-                                                // playGhostReplay handles async fetching if frames are null, which they are here.
                                                 playGhostReplay(replay);
-                                                playerCooldowns.put(replay.id, System.currentTimeMillis());
+                                                proximityCooldowns.put(replay.id, System.currentTimeMillis());
+                                                
+                                                if (replay.type == ReplayType.PVP) {
+                                                    try {
+                                                        List<DatabaseManager.ReplayData> partners = databaseManager.getReplaysByTimestamp(replay.timestamp);
+                                                        for (DatabaseManager.ReplayData partner : partners) {
+                                                            proximityCooldowns.put(partner.id, System.currentTimeMillis());
+                                                        }
+                                                    } catch (Exception e) {
+                                                        plugin.getLogger().warning("Failed to cooldown partner replays: " + e.getMessage());
+                                                    }
+                                                }
                                                 
                                                 // Only trigger one replay per check to avoid chaos
                                                 break; 
