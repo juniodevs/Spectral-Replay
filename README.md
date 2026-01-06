@@ -2,6 +2,12 @@
 
 **Spectral Replay** is a Minecraft Spigot plugin that adds an immersive, haunting element to your server by recording and replaying player deaths as "ghosts". When a player dies, their final moments are captured and can be replayed later as a spectral apparition at the location of their death.
 
+## 🎥 Showcase
+
+Check out an example of the mod in action:
+
+[![Spectral Replay Showcase](https://img.youtube.com/vi/7CSVs1f2R8Av/0.jpg)](https://youtu.be/7CSVs1f2R8Av)
+
 ## 👻 Features
 
 *   **Death Replays:** Automatically records the last few seconds before a player's death.
