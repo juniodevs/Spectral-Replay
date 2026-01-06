@@ -6,7 +6,7 @@
 
 Check out an example of the mod in action:
 
-[![Spectral Replay Showcase](https://img.youtube.com/vi/7CSVs1f2R8Av/0.jpg)](https://youtu.be/7CSVs1f2R8Av)
+[Watch Video](https://youtu.be/7CSVs1f2R8Av)
 
 ## 👻 Features
 
