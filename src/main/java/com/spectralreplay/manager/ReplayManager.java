@@ -735,6 +735,15 @@ public class ReplayManager {
                             }
                             lastEquippedArmor = currentArmor;
                         }
+                    } else {
+                        if (lastEquippedArmor != null || frameIndex == 0) {
+                            Equipment equipment = npc.getOrAddTrait(Equipment.class);
+                            equipment.set(Equipment.EquipmentSlot.BOOTS, new ItemStack(Material.AIR));
+                            equipment.set(Equipment.EquipmentSlot.LEGGINGS, new ItemStack(Material.AIR));
+                            equipment.set(Equipment.EquipmentSlot.CHESTPLATE, new ItemStack(Material.AIR));
+                            equipment.set(Equipment.EquipmentSlot.HELMET, new ItemStack(Material.AIR));
+                            lastEquippedArmor = null;
+                        }
                     }
 
                     if (frameIndex % 3 == 0) {
